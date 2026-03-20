@@ -1,0 +1,50 @@
+export type ArtStyle = "Abstract" | "Traditional" | "Modern" | "Custom";
+export type ArtMedium = "Oil on Canvas" | "Acrylic" | "Mixed Media" | "Watercolor";
+export type ArtSize = "Small" | "Medium" | "Large";
+
+export type Product = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  image: string;
+  price: number;
+  quantity: number;
+  originalPrice?: number;
+  rating: number;
+  style: ArtStyle;
+  medium: ArtMedium;
+  size: ArtSize;
+  dimensions: string;
+  artist: string;
+  featured?: boolean;
+  bestseller?: boolean;
+};
+
+export type CartItem = {
+  product: Product;
+  quantity: number;
+};
+
+export type Testimonial = {
+  id: string;
+  name: string;
+  city: string;
+  message: string;
+};
+
+export type ArtistProfile = {
+  id: string;
+  name: string;
+  title: string;
+  bio: string;
+  image: string;
+};
+
+export type EventType =
+  | "order_created"
+  | "user_registered"
+  | "payment_success"
+  | "cart_updated";
+
+export type EventPayload = Record<string, unknown>;
