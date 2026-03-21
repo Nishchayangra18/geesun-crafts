@@ -5,13 +5,9 @@ import { getAuthenticatedUserFromRequest } from "@/lib/supabase/auth";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
     const authUser = await getAuthenticatedUserFromRequest(request);
-    const fallbackId = String(body.auth_user_id ?? "");
-    const fallbackEmail = String(body.email ?? "");
-
-    const userId = authUser?.id ?? fallbackId;
-    const email = authUser?.email ?? fallbackEmail;
+    const userId = authUser?.id ?? "";
+    const email = authUser?.email ?? "";
 
     if (!userId || !email) {
       return NextResponse.json(

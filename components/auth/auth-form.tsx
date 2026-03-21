@@ -25,20 +25,12 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       if (mode === "register") {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        await syncUserRecord({
-          accessToken: data.session?.access_token,
-          fallbackUserId: data.user?.id,
-          fallbackEmail: data.user?.email ?? email,
-        });
+        await syncUserRecord(data.session?.access_token);
         setMessage("Account created. Please check your email for verification.");
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        await syncUserRecord({
-          accessToken: data.session.access_token,
-          fallbackUserId: data.user.id,
-          fallbackEmail: data.user.email ?? email,
-        });
+        await syncUserRecord(data.session.access_token);
         setMessage("Login successful.");
       }
     } catch (error) {
@@ -106,28 +98,16 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   );
 }
 
-async function syncUserRecord({
-  accessToken,
-  fallbackUserId,
-  fallbackEmail,
-}: {
-  accessToken?: string;
-  fallbackUserId?: string;
-  fallbackEmail?: string;
-}) {
+async function syncUserRecord(accessToken?: string) {
+  if (!accessToken) return;
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    Authorization: `Bearer ${accessToken}`,
   };
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
-  }
 
   await fetch("/api/users", {
     method: "POST",
     headers,
-    body: JSON.stringify({
-      auth_user_id: fallbackUserId,
-      email: fallbackEmail,
-    }),
   });
 }

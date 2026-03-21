@@ -52,9 +52,12 @@ export function ProductCard({ product }: { product: Product }) {
           <button
             type="button"
             onClick={() => (liked ? removeFromWishlist(product.id) : addToWishlist(product))}
-            className="outline-btn rounded-full px-4 py-2 text-sm"
+            className="outline-btn inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm"
+            aria-pressed={liked}
+            aria-label={liked ? "Remove from Wishlist" : "Add to Wishlist"}
           >
-            {liked ? "Wishlisted" : "Wishlist"}
+            <span aria-hidden="true">{liked ? "\u2665" : "\u2661"}</span>
+            {liked ? "Remove Wishlist" : "Add Wishlist"}
           </button>
         </div>
       </div>

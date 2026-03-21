@@ -74,9 +74,12 @@ export function ProductDetailShell({ product }: { product: Product }) {
             <button
               type="button"
               onClick={() => (liked ? removeFromWishlist(product.id) : addToWishlist(product))}
-              className="outline-btn rounded-full px-5 py-3"
+              className="outline-btn inline-flex items-center justify-center gap-2 rounded-full px-5 py-3"
+              aria-pressed={liked}
+              aria-label={liked ? "Remove from Wishlist" : "Add to Wishlist"}
             >
-              {liked ? "Remove Wishlist" : "Add Wishlist"}
+              <span aria-hidden="true">{liked ? "\u2665" : "\u2661"}</span>
+              {liked ? "Remove from Wishlist" : "Add to Wishlist"}
             </button>
           </div>
 
