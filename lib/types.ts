@@ -22,6 +22,7 @@ export type Product = {
 };
 
 export type CartItem = {
+  cartItemId?: string;
   product: Product;
   quantity: number;
 };

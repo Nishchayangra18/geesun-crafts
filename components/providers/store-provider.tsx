@@ -41,14 +41,77 @@ type WishlistApiItem = {
   product: Product | null;
 };
 
+type CartApiItem = {
+  id: string;
+  product_id: string;
+  quantity: number;
+  product: Product | null;
+};
+
 const StoreContext = createContext<StoreContextValue | null>(null);
 
-const CART_KEY = "geesun_cart";
+const GUEST_CART_KEY = "geesun_cart";
 const GUEST_WISHLIST_IDS_KEY = "geesun_guest_wishlist_ids";
 const LEGACY_WISHLIST_KEY = "geesun_wishlist";
 
 function getSafeStock(product: Product) {
   return Number.isFinite(product.quantity) ? Math.max(0, product.quantity) : 0;
+}
+
+function readGuestCartItems() {
+  if (typeof window === "undefined") return [] as CartItem[];
+
+  try {
+    const saved = localStorage.getItem(GUEST_CART_KEY);
+    if (!saved) return [];
+
+    const parsed = JSON.parse(saved) as Array<{
+      product?: Product;
+      quantity?: number;
+    }>;
+
+    if (!Array.isArray(parsed)) return [];
+
+    const merged = new Map<string, CartItem>();
+    for (const rawItem of parsed) {
+      const product = rawItem?.product;
+      if (!product?.id) continue;
+
+      const qty = Number(rawItem.quantity ?? 0);
+      if (!Number.isFinite(qty) || qty <= 0) continue;
+
+      const available = getSafeStock(product);
+      if (available <= 0) continue;
+
+      const nextQuantity = Math.min(available, Math.trunc(qty));
+      const existing = merged.get(product.id);
+      if (!existing) {
+        merged.set(product.id, {
+          product,
+          quantity: nextQuantity,
+        });
+      } else {
+        merged.set(product.id, {
+          product,
+          quantity: Math.min(available, existing.quantity + nextQuantity),
+        });
+      }
+    }
+
+    return [...merged.values()];
+  } catch {
+    return [];
+  }
+}
+
+function writeGuestCartItems(items: CartItem[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(GUEST_CART_KEY, JSON.stringify(items));
+}
+
+function clearGuestCartItems() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(GUEST_CART_KEY);
 }
 
 function readGuestWishlistIds() {
@@ -101,24 +164,34 @@ function normalizeWishlistItems(items: WishlistApiItem[]) {
   }));
 }
 
-export function StoreProvider({ children }: { children: ReactNode }) {
-  const [cart, setCart] = useState<CartItem[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const saved = localStorage.getItem(CART_KEY);
-      return saved ? (JSON.parse(saved) as CartItem[]) : [];
-    } catch {
-      return [];
+function normalizeCartItems(items: CartApiItem[]) {
+  return items.reduce<CartItem[]>((acc, item) => {
+    const quantity = Number(item.quantity);
+    if (!item.product?.id || !Number.isFinite(quantity) || quantity <= 0) {
+      return acc;
     }
-  });
+
+    acc.push({
+      cartItemId: String(item.id),
+      product: item.product,
+      quantity,
+    });
+    return acc;
+  }, []);
+}
+
+export function StoreProvider({ children }: { children: ReactNode }) {
+  const [cart, setCart] = useState<CartItem[]>(() => readGuestCartItems());
   const [wishlistIds, setWishlistIds] = useState<string[]>(() => readGuestWishlistIds());
   const [wishlist, setWishlist] = useState<WishlistEntry[]>([]);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
-  }, [cart]);
+    if (!userEmail) {
+      writeGuestCartItems(cart);
+    }
+  }, [cart, userEmail]);
 
   useEffect(() => {
     localStorage.removeItem(LEGACY_WISHLIST_KEY);
@@ -164,6 +237,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const fetchServerCart = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      setCart(readGuestCartItems());
+      return;
+    }
+
+    const response = await fetch("/api/cart", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) throw new Error("Failed to fetch cart");
+
+    const payload = await response.json();
+    setCart(normalizeCartItems((payload.items ?? []) as CartApiItem[]));
+  }, [getAccessToken]);
+
   const fetchServerWishlist = useCallback(async () => {
     const token = await getAccessToken();
     if (!token) {
@@ -187,6 +281,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setWishlist(items);
     setWishlistIds(items.map((item) => item.productId));
   }, [fetchGuestWishlistProducts, getAccessToken]);
+
+  const mergeGuestCartIntoServer = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+
+    const guestItems = readGuestCartItems();
+    if (!guestItems.length) return;
+
+    for (const item of guestItems) {
+      const productId = String(item.product.id ?? "").trim();
+      if (!productId) continue;
+
+      await fetch("/api/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          product_id: productId,
+          quantity: item.quantity,
+        }),
+      }).catch(() => null);
+    }
+
+    clearGuestCartItems();
+  }, [getAccessToken]);
 
   const mergeGuestWishlistIntoServer = useCallback(async () => {
     const token = await getAccessToken();
@@ -221,6 +342,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchGuestWishlistProducts, fetchServerWishlist]);
 
+  const refreshCart = useCallback(async () => {
+    try {
+      await fetchServerCart();
+    } catch {
+      setCart(readGuestCartItems());
+    }
+  }, [fetchServerCart]);
+
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
@@ -237,8 +366,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       if (user) {
         await mergeGuestWishlistIntoServer();
+        await mergeGuestCartIntoServer();
       }
-      await refreshWishlist();
+
+      await Promise.all([refreshWishlist(), refreshCart()]);
     };
 
     void syncUserState();
@@ -249,13 +380,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         void (async () => {
           await mergeGuestWishlistIntoServer();
-          await refreshWishlist();
+          await mergeGuestCartIntoServer();
+          await Promise.all([refreshWishlist(), refreshCart()]);
         })();
         return;
       }
 
       const guestIds = readGuestWishlistIds();
       setWishlistIds(guestIds);
+      setCart(readGuestCartItems());
       void fetchGuestWishlistProducts(guestIds);
     });
 
@@ -263,26 +396,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       active = false;
       subscription.subscription.unsubscribe();
     };
-  }, [fetchGuestWishlistProducts, mergeGuestWishlistIntoServer, refreshWishlist]);
+  }, [fetchGuestWishlistProducts, mergeGuestCartIntoServer, mergeGuestWishlistIntoServer, refreshCart, refreshWishlist]);
 
   useEffect(() => {
     if (!userEmail) return;
     const interval = window.setInterval(() => {
-      void refreshWishlist();
+      void Promise.all([refreshWishlist(), refreshCart()]);
     }, 60000);
     return () => window.clearInterval(interval);
-  }, [refreshWishlist, userEmail]);
+  }, [refreshCart, refreshWishlist, userEmail]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void refreshWishlist();
+        void Promise.all([refreshWishlist(), refreshCart()]);
       }
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [refreshWishlist]);
+  }, [refreshCart, refreshWishlist]);
 
   const value = useMemo<StoreContextValue>(
     () => ({
@@ -291,42 +424,158 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       userEmail,
       cartCount: cart.reduce((count, item) => count + item.quantity, 0),
       wishlistCount: wishlistIds.length,
-      addToCart: (product) =>
+      addToCart: (product) => {
+        const productId = String(product.id ?? "").trim();
+        if (!productId) return;
+
+        const stock = getSafeStock(product);
+        if (stock <= 0) {
+          setToastMessage("This product is currently out of stock.");
+          return;
+        }
+
+        if (userEmail) {
+          void (async () => {
+            const token = await getAccessToken();
+            if (!token) return;
+
+            const response = await fetch("/api/cart", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                product_id: productId,
+                quantity: 1,
+              }),
+            });
+
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              setToastMessage(payload?.error ?? "Could not add to cart.");
+              await refreshCart();
+              return;
+            }
+
+            setToastMessage("Added to cart.");
+            await refreshCart();
+          })();
+          return;
+        }
+
         setCart((current) => {
-          const incomingStock = getSafeStock(product);
-          if (incomingStock <= 0) return current;
           const index = current.findIndex((item) => item.product.id === product.id);
           if (index > -1) {
             return current.map((item, itemIndex) =>
               itemIndex !== index
                 ? item
-                : (() => {
-                    const stock = getSafeStock(item.product);
-                    if (stock <= 0 || item.quantity >= stock) return item;
-                    return { ...item, quantity: item.quantity + 1 };
-                  })(),
+                : {
+                    ...item,
+                    quantity: Math.min(getSafeStock(item.product), item.quantity + 1),
+                  },
             );
           }
           return [...current, { product, quantity: 1 }];
-        }),
-      removeFromCart: (productId) =>
-        setCart((current) => current.filter((item) => item.product.id !== productId)),
-      updateCartQuantity: (productId, quantity) =>
+        });
+
+        setToastMessage("Added to guest cart. Login to sync across devices.");
+      },
+      removeFromCart: (productId) => {
+        setCart((current) => current.filter((item) => item.product.id !== productId));
+
+        if (userEmail) {
+          void (async () => {
+            const token = await getAccessToken();
+            if (!token) return;
+
+            const existing = cart.find((item) => item.product.id === productId);
+            if (!existing?.cartItemId) {
+              await refreshCart();
+              return;
+            }
+
+            const response = await fetch(`/api/cart/${existing.cartItemId}`, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              setToastMessage(payload?.error ?? "Could not remove cart item.");
+              await refreshCart();
+              return;
+            }
+
+            setToastMessage("Removed from cart.");
+            await refreshCart();
+          })();
+        }
+      },
+      updateCartQuantity: (productId, quantity) => {
+        const existing = cart.find((item) => item.product.id === productId);
+        if (!existing) return;
+
+        if (quantity <= 0) {
+          setCart((current) => current.filter((item) => item.product.id !== productId));
+
+          if (userEmail) {
+            void (async () => {
+              const token = await getAccessToken();
+              if (!token || !existing.cartItemId) return;
+              await fetch(`/api/cart/${existing.cartItemId}`, {
+                method: "DELETE",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              }).catch(() => null);
+              await refreshCart();
+            })();
+          }
+
+          return;
+        }
+
+        const cappedQuantity = Math.min(Math.max(1, quantity), Math.max(1, getSafeStock(existing.product)));
+
         setCart((current) =>
-          current
-            .map((item) =>
-              item.product.id === productId
-                ? {
-                    ...item,
-                    quantity:
-                      getSafeStock(item.product) <= 0
-                        ? 0
-                        : Math.min(Math.max(1, quantity), getSafeStock(item.product)),
-                  }
-                : item,
-            )
-            .filter((item) => item.quantity > 0),
-        ),
+          current.map((item) =>
+            item.product.id === productId
+              ? {
+                  ...item,
+                  quantity: cappedQuantity,
+                }
+              : item,
+          ),
+        );
+
+        if (userEmail) {
+          void (async () => {
+            const token = await getAccessToken();
+            if (!token || !existing.cartItemId) return;
+
+            const response = await fetch(`/api/cart/${existing.cartItemId}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ quantity: cappedQuantity }),
+            });
+
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              setToastMessage(payload?.error ?? "Could not update cart quantity.");
+              await refreshCart();
+              return;
+            }
+
+            await refreshCart();
+          })();
+        }
+      },
       addToWishlist: (product) => {
         const productId = String(product.id);
         if (!productId) return;
@@ -412,6 +661,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        const stock = getSafeStock(entry.product);
         setCart((current) => {
           const index = current.findIndex((item) => item.product.id === productId);
           if (index > -1) {
@@ -419,10 +669,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               itemIndex === index
                 ? {
                     ...item,
-                    quantity: Math.min(
-                      item.quantity + 1,
-                      Math.max(1, getSafeStock(entry.product as Product)),
-                    ),
+                    quantity: Math.min(item.quantity + 1, Math.max(1, stock)),
                   }
                 : item,
             );
@@ -443,7 +690,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 Authorization: `Bearer ${token}`,
               },
             });
-            await refreshWishlist();
+            await fetch("/api/cart", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ product_id: productId, quantity: 1 }),
+            }).catch(() => null);
+            await Promise.all([refreshWishlist(), refreshCart()]);
           })();
         } else {
           const nextGuestIds = readGuestWishlistIds().filter((id) => id !== productId);
@@ -453,10 +708,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setToastMessage("Moved to cart.");
       },
       isWishlisted: (productId) => wishlistIds.includes(productId),
-      clearCart: () => setCart([]),
+      clearCart: () => {
+        setCart([]);
+
+        if (userEmail) {
+          void (async () => {
+            const token = await getAccessToken();
+            if (!token) return;
+
+            await fetch("/api/cart", {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }).catch(() => null);
+
+            await refreshCart();
+          })();
+          return;
+        }
+
+        clearGuestCartItems();
+      },
       refreshWishlist,
     }),
-    [cart, getAccessToken, refreshWishlist, userEmail, wishlist, wishlistIds],
+    [cart, getAccessToken, refreshCart, refreshWishlist, userEmail, wishlist, wishlistIds],
   );
 
   return (

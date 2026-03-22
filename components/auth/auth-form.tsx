@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { syncAuthenticatedUser } from "@/lib/supabase/sync-user";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -25,12 +27,12 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       if (mode === "register") {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        await syncUserRecord(data.session?.access_token);
+        await syncAuthenticatedUser(data.session?.access_token);
         setMessage("Account created. Please check your email for verification.");
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        await syncUserRecord(data.session.access_token);
+        await syncAuthenticatedUser(data.session.access_token);
         setMessage("Login successful.");
       }
     } catch (error) {
@@ -39,6 +41,212 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleGoogleLogin() {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        setMessage("Supabase keys are missing in environment variables.");
+        return;
+      }
+
+      const redirectTo = `${window.location.origin}/auth/callback`;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo,
+        },
+      });
+
+      if (error) throw error;
+      setMessage("Redirecting to Google...");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Google authentication failed";
+      setMessage(text);
+      setLoading(false);
+    }
+  }
+
+  async function handleForgotPassword() {
+    setMessage("");
+    setLoading(true);
+
+    try {
+      const trimmedEmail = email.trim();
+      if (!trimmedEmail) {
+        setMessage("Enter your email first, then click Forgot password.");
+        return;
+      }
+
+      const supabase = getSupabaseBrowserClient();
+      if (!supabase) {
+        setMessage("Supabase keys are missing in environment variables.");
+        return;
+      }
+
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: `${window.location.origin}/login`,
+      });
+      if (error) throw error;
+
+      setMessage("Password reset link sent. Please check your inbox.");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Could not send reset email";
+      setMessage(text);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (mode === "login") {
+    return (
+      <section className="container-shell section-space">
+        <div className="mx-auto w-full max-w-6xl overflow-hidden rounded-[2rem] border border-[var(--border-soft)] bg-[var(--panel)] shadow-[0_18px_45px_rgb(89_71_46_/_16%)] lg:grid lg:min-h-[78vh] lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="relative hidden overflow-hidden lg:block">
+            <div
+              className="absolute inset-0 bg-cover bg-center"
+              style={{
+                backgroundImage:
+                  "url('https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=1600&q=80')",
+              }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#2f2a23cc] via-[#6b7d5e55] to-[#f5f1eba8]" />
+            <div className="relative z-10 flex h-full items-end p-10">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-[#f3ead7]">Geesun Crafts</p>
+                <h2 className="mt-3 max-w-md font-[var(--font-heading)] text-4xl leading-tight text-white">
+                  Timeless Art for Your Home
+                </h2>
+                <p className="mt-3 max-w-sm text-sm text-[#f7f1e8]">
+                  Discover handcrafted pieces that elevate living spaces with warmth and character.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center bg-[#f8f3ea] p-6 sm:p-8 lg:p-10">
+            <div className="w-full">
+              <h1 className="font-[var(--font-heading)] text-4xl text-[var(--text-primary)]">Welcome Back</h1>
+              <p className="mt-2 text-sm text-[var(--text-muted)]">
+                Login to continue your premium art shopping journey.
+              </p>
+
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={loading}
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border-soft)] bg-white px-5 py-3 text-sm text-[var(--text-primary)] transition hover:border-[var(--olive)] disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {loading ? (
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--olive)] border-r-transparent" />
+                ) : null}
+                Continue with Google
+              </button>
+
+              <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-[0.15em] text-[var(--text-muted)]">
+                <span className="h-px flex-1 bg-[var(--border-soft)]" />
+                OR
+                <span className="h-px flex-1 bg-[var(--border-soft)]" />
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <label className="block text-sm text-[var(--text-muted)]">
+                  Email
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-[var(--border-soft)] bg-white px-3 py-3 outline-none"
+                  />
+                </label>
+
+                <label className="block text-sm text-[var(--text-muted)]">
+                  Password
+                  <div className="relative mt-2">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      minLength={6}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      className="w-full rounded-2xl border border-[var(--border-soft)] bg-white px-3 py-3 pr-12 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((current) => !current)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] transition hover:text-[var(--text-primary)]"
+                    >
+                      {showPassword ? (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          className="h-5 w-5"
+                        >
+                          <path d="M3 3l18 18" />
+                          <path d="M10.58 10.58a2 2 0 102.83 2.83" />
+                          <path d="M9.88 5.09A10.94 10.94 0 0112 5c6 0 10 7 10 7a17.31 17.31 0 01-4.31 5.07" />
+                          <path d="M6.61 6.61A17.3 17.3 0 002 12s4 7 10 7a10.94 10.94 0 005.09-1.17" />
+                        </svg>
+                      ) : (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          className="h-5 w-5"
+                        >
+                          <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={loading}
+                  className="text-xs text-[var(--olive)] underline underline-offset-2"
+                >
+                  Forgot password?
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="olive-btn flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {loading ? (
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />
+                  ) : null}
+                  Continue to Your Gallery →
+                </button>
+              </form>
+
+              {message ? <p className="mt-4 text-sm text-[var(--text-muted)]">{message}</p> : null}
+
+              <p className="mt-6 text-sm text-[var(--text-muted)]">
+                New to Geesun Crafts?{" "}
+                <Link href="/register" className="text-[var(--olive)] underline underline-offset-2">
+                  Register
+                </Link>
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -80,6 +288,17 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           <button type="submit" disabled={loading} className="olive-btn w-full rounded-full px-5 py-3 text-sm">
             {loading ? "Please wait..." : mode === "register" ? "Register" : "Login"}
           </button>
+
+          {mode === "login" ? (
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading}
+              className="w-full rounded-full border border-[var(--border-soft)] bg-white px-5 py-3 text-sm text-[var(--text-primary)] transition hover:border-[var(--olive)] disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              Continue with Google
+            </button>
+          ) : null}
         </form>
 
         {message ? <p className="mt-4 text-sm text-[var(--text-muted)]">{message}</p> : null}
@@ -96,18 +315,4 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       </div>
     </section>
   );
-}
-
-async function syncUserRecord(accessToken?: string) {
-  if (!accessToken) return;
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-  };
-
-  await fetch("/api/users", {
-    method: "POST",
-    headers,
-  });
 }
