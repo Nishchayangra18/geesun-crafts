@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { syncAuthenticatedUser } from "@/lib/supabase/sync-user";
+import { fetchAuthenticatedUserProfile, syncAuthenticatedUser } from "@/lib/supabase/sync-user";
+
+function hasCompletedPreferences(preferences: unknown) {
+  if (!preferences || typeof preferences !== "object") return false;
+  const value = preferences as { art_styles?: unknown };
+  return Array.isArray(value.art_styles) && value.art_styles.length > 0;
+}
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -42,10 +48,18 @@ export default function AuthCallbackPage() {
         }
 
         await syncAuthenticatedUser(session.access_token);
+        const profile = await fetchAuthenticatedUserProfile(session.access_token);
+        const needsOnboarding = !profile || !hasCompletedPreferences(profile.preferences);
 
         if (active) {
+          if (needsOnboarding) {
+            setMessage("Complete your style preferences to personalize your experience.");
+            router.replace("/register?step=2&oauth=true");
+            return;
+          }
+
           setMessage("Login successful. Redirecting...");
-          router.replace("/account");
+          router.replace("/");
         }
       } catch (error) {
         if (!active) return;

@@ -2,20 +2,76 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { syncAuthenticatedUser } from "@/lib/supabase/sync-user";
+import { PASSWORD_MIN_LENGTH, validateRegistrationPassword } from "@/lib/security/password-policy";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
+  const router = useRouter();
   const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [identifierError, setIdentifierError] = useState("");
+  const [errors, setErrors] = useState<{
+    identifier?: string;
+    email?: string;
+    password?: string;
+  }>({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  function getInputClass(hasError: boolean, shape: "pill" | "rounded") {
+    const radius = shape === "pill" ? "rounded-2xl" : "rounded-lg";
+    return `mt-2 w-full ${radius} border bg-white px-3 py-3 outline-none transition-all duration-200 ${
+      hasError
+        ? "border-[#c66156] focus:border-[#c66156]"
+        : "border-[var(--border-soft)] focus:border-[var(--olive)]"
+    }`;
+  }
+
+  async function resolveEmailForLogin(rawIdentifier: string) {
+    const trimmed = rawIdentifier.trim();
+    if (!trimmed) {
+      throw new Error("Email or mobile number is required.");
+    }
+
+    if (trimmed.includes("@")) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmed)) {
+        throw new Error("Enter a valid email or mobile number");
+      }
+      return trimmed.toLowerCase();
+    }
+
+    const normalizedPhone = trimmed.replace(/\s+/g, "");
+    if (!/^\d{10}$/.test(normalizedPhone)) {
+      throw new Error("Enter a valid email or mobile number");
+    }
+
+    const response = await fetch("/api/auth/resolve-user", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ phone: normalizedPhone }),
+    });
+
+    const result = (await response.json().catch(() => ({}))) as { email?: string; error?: string };
+    if (!response.ok || !result.email) {
+      throw new Error(result.error || "User not found with this mobile number");
+    }
+
+    return result.email;
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setMessage("");
+    setIdentifierError("");
+    setErrors({});
 
     try {
       const supabase = getSupabaseBrowserClient();
@@ -25,18 +81,64 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       }
 
       if (mode === "register") {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const registerErrors: { email?: string; password?: string } = {};
+        const trimmedEmail = email.trim();
+        if (!trimmedEmail) {
+          registerErrors.email = "Email is required";
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+          registerErrors.email = "Enter a valid email address";
+        }
+
+        const passwordError = validateRegistrationPassword(password);
+        if (passwordError) registerErrors.password = passwordError;
+        if (registerErrors.email || registerErrors.password) {
+          setErrors(registerErrors);
+          return;
+        }
+
+        const { data, error } = await supabase.auth.signUp({ email: trimmedEmail, password });
         if (error) throw error;
         await syncAuthenticatedUser(data.session?.access_token);
         setMessage("Account created. Please check your email for verification.");
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const loginErrors: { identifier?: string; password?: string } = {};
+        const trimmedIdentifier = identifier.trim();
+        if (!trimmedIdentifier) {
+          loginErrors.identifier = "Email or mobile number is required";
+        } else if (
+          !trimmedIdentifier.includes("@") &&
+          !/^\d{10}$/.test(trimmedIdentifier.replace(/\s+/g, ""))
+        ) {
+          loginErrors.identifier = "Enter a valid email or mobile number";
+        }
+
+        if (!password) {
+          loginErrors.password = "Password is required";
+        } else if (password.length < PASSWORD_MIN_LENGTH) {
+          loginErrors.password = `Password must be at least ${PASSWORD_MIN_LENGTH} characters`;
+        }
+
+        if (loginErrors.identifier || loginErrors.password) {
+          setErrors(loginErrors);
+          return;
+        }
+
+        const resolvedEmail = await resolveEmailForLogin(identifier);
+        const { data, error } = await supabase.auth.signInWithPassword({ email: resolvedEmail, password });
         if (error) throw error;
         await syncAuthenticatedUser(data.session.access_token);
         setMessage("Login successful.");
+        router.push("/");
       }
     } catch (error) {
       const text = error instanceof Error ? error.message : "Authentication failed";
+      if (
+        text === "Email or mobile number is required." ||
+        text === "Enter a valid email or mobile number" ||
+        text === "User not found with this mobile number"
+      ) {
+        setIdentifierError(text);
+      }
       setMessage(text);
     } finally {
       setLoading(false);
@@ -153,16 +255,26 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                 <span className="h-px flex-1 bg-[var(--border-soft)]" />
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form noValidate onSubmit={handleSubmit} className="space-y-4">
                 <label className="block text-sm text-[var(--text-muted)]">
-                  Email
+                  Email or Mobile Number
                   <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-[var(--border-soft)] bg-white px-3 py-3 outline-none"
+                    type="text"
+                    value={identifier}
+                    onChange={(event) => {
+                      setIdentifier(event.target.value);
+                      setErrors((current) => ({ ...current, identifier: undefined }));
+                      setIdentifierError("");
+                    }}
+                    placeholder="Enter your email (e.g. user@gmail.com) or mobile number (e.g. 9876543210)"
+                    className={getInputClass(Boolean(errors.identifier || identifierError), "pill")}
+                    aria-invalid={Boolean(errors.identifier || identifierError)}
                   />
+                  <p className="mt-2 text-xs text-[var(--text-muted)]">
+                    You can login using your registered email or mobile number
+                  </p>
+                  {errors.identifier ? <p className="mt-1 text-xs text-[#c66156]">{errors.identifier}</p> : null}
+                  {identifierError ? <p className="mt-1 text-xs text-[#8b4a3d]">{identifierError}</p> : null}
                 </label>
 
                 <label className="block text-sm text-[var(--text-muted)]">
@@ -170,11 +282,17 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                   <div className="relative mt-2">
                     <input
                       type={showPassword ? "text" : "password"}
-                      required
-                      minLength={6}
                       value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      className="w-full rounded-2xl border border-[var(--border-soft)] bg-white px-3 py-3 pr-12 outline-none"
+                      onChange={(event) => {
+                        setPassword(event.target.value);
+                        setErrors((current) => ({ ...current, password: undefined }));
+                      }}
+                      className={`w-full rounded-2xl border bg-white px-3 py-3 pr-12 outline-none transition-all duration-200 ${
+                        errors.password
+                          ? "border-[#c66156] focus:border-[#c66156]"
+                          : "border-[var(--border-soft)] focus:border-[var(--olive)]"
+                      }`}
+                      aria-invalid={Boolean(errors.password)}
                     />
                     <button
                       type="button"
@@ -211,6 +329,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
                       )}
                     </button>
                   </div>
+                  {errors.password ? <p className="mt-1 text-xs text-[#c66156]">{errors.password}</p> : null}
                 </label>
 
                 <button
@@ -261,29 +380,36 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
             : "Login to continue your premium art shopping journey."}
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <label className="block text-sm text-[var(--text-muted)]">
-            Email
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="mt-2 w-full rounded-lg border border-[var(--border-soft)] bg-white px-3 py-2 outline-none"
-            />
-          </label>
+          <form noValidate onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <label className="block text-sm text-[var(--text-muted)]">
+              Email
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  setErrors((current) => ({ ...current, email: undefined }));
+                }}
+                className={getInputClass(Boolean(errors.email), "rounded")}
+                aria-invalid={Boolean(errors.email)}
+              />
+              {errors.email ? <p className="mt-1 text-xs text-[#c66156]">{errors.email}</p> : null}
+            </label>
 
-          <label className="block text-sm text-[var(--text-muted)]">
-            Password
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="mt-2 w-full rounded-lg border border-[var(--border-soft)] bg-white px-3 py-2 outline-none"
-            />
-          </label>
+            <label className="block text-sm text-[var(--text-muted)]">
+              Password
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setErrors((current) => ({ ...current, password: undefined }));
+                }}
+                className={getInputClass(Boolean(errors.password), "rounded")}
+                aria-invalid={Boolean(errors.password)}
+              />
+              {errors.password ? <p className="mt-1 text-xs text-[#c66156]">{errors.password}</p> : null}
+            </label>
 
           <button type="submit" disabled={loading} className="olive-btn w-full rounded-full px-5 py-3 text-sm">
             {loading ? "Please wait..." : mode === "register" ? "Register" : "Login"}

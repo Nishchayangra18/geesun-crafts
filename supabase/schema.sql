@@ -6,9 +6,11 @@ create extension if not exists "uuid-ossp";
 create table if not exists users (
   id uuid primary key default uuid_generate_v4(),
   email text unique not null,
-  phone text,
+  password_hash text,
+  phone text unique,
   preferences jsonb default '{}'::jsonb,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  last_login timestamptz default now()
 );
 
 create table if not exists carts (
