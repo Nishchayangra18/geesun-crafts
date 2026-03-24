@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -24,15 +25,31 @@ type StoreContextValue = {
   userEmail: string | null;
   cartCount: number;
   wishlistCount: number;
-  addToCart: (product: Product) => void;
-  removeFromCart: (productId: string) => void;
-  updateCartQuantity: (productId: string, quantity: number) => void;
+  addToCart: (product: Product) => Promise<CartActionResult>;
+  removeFromCart: (productId: string) => Promise<CartActionResult>;
+  updateCartQuantity: (productId: string, quantity: number) => Promise<CartActionResult>;
   addToWishlist: (product: Product) => void;
   removeFromWishlist: (productId: string) => void;
   moveWishlistToCart: (productId: string) => void;
   isWishlisted: (productId: string) => boolean;
   clearCart: () => void;
   refreshWishlist: () => Promise<void>;
+};
+
+export type CartActionResult = {
+  ok: boolean;
+  code:
+    | "added"
+    | "updated"
+    | "removed"
+    | "stock_limit"
+    | "out_of_stock"
+    | "unauthorized"
+    | "invalid"
+    | "error";
+  message: string;
+  available?: number;
+  quantity?: number;
 };
 
 type WishlistApiItem = {
@@ -48,6 +65,12 @@ type CartApiItem = {
   product: Product | null;
 };
 
+type RefreshOptions = {
+  force?: boolean;
+};
+
+const REFRESH_THROTTLE_MS = 3000;
+
 const StoreContext = createContext<StoreContextValue | null>(null);
 
 const GUEST_CART_KEY = "geesun_cart";
@@ -56,6 +79,11 @@ const LEGACY_WISHLIST_KEY = "geesun_wishlist";
 
 function getSafeStock(product: Product) {
   return Number.isFinite(product.quantity) ? Math.max(0, product.quantity) : 0;
+}
+
+function getStockLimitMessage(remaining: number) {
+  if (remaining > 0) return `Only ${remaining} items available`;
+  return "Maximum available stock reached";
 }
 
 function readGuestCartItems() {
@@ -185,7 +213,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [wishlistIds, setWishlistIds] = useState<string[]>(() => readGuestWishlistIds());
   const [wishlist, setWishlist] = useState<WishlistEntry[]>([]);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const cartRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const wishlistRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const lastCartRefreshAtRef = useRef(0);
+  const lastWishlistRefreshAtRef = useRef(0);
 
   useEffect(() => {
     if (!userEmail) {
@@ -196,15 +227,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.removeItem(LEGACY_WISHLIST_KEY);
   }, []);
-
-  useEffect(() => {
-    const timer = toastMessage
-      ? window.setTimeout(() => setToastMessage(null), 2200)
-      : undefined;
-    return () => {
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [toastMessage]);
 
   const getAccessToken = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();
@@ -332,23 +354,57 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     clearGuestWishlistIds();
   }, [getAccessToken]);
 
-  const refreshWishlist = useCallback(async () => {
-    try {
-      await fetchServerWishlist();
-    } catch {
-      const guestIds = readGuestWishlistIds();
-      setWishlistIds(guestIds);
-      await fetchGuestWishlistProducts(guestIds);
-    }
-  }, [fetchGuestWishlistProducts, fetchServerWishlist]);
+  const refreshWishlist = useCallback(
+    async (options: RefreshOptions = {}) => {
+      const now = Date.now();
+      if (!options.force && now - lastWishlistRefreshAtRef.current < REFRESH_THROTTLE_MS) {
+        return wishlistRefreshInFlightRef.current ?? Promise.resolve();
+      }
+      if (wishlistRefreshInFlightRef.current) return wishlistRefreshInFlightRef.current;
 
-  const refreshCart = useCallback(async () => {
-    try {
-      await fetchServerCart();
-    } catch {
-      setCart(readGuestCartItems());
-    }
-  }, [fetchServerCart]);
+      wishlistRefreshInFlightRef.current = (async () => {
+        try {
+          await fetchServerWishlist();
+          lastWishlistRefreshAtRef.current = Date.now();
+        } catch {
+          const guestIds = readGuestWishlistIds();
+          setWishlistIds(guestIds);
+          await fetchGuestWishlistProducts(guestIds);
+          lastWishlistRefreshAtRef.current = Date.now();
+        } finally {
+          wishlistRefreshInFlightRef.current = null;
+        }
+      })();
+
+      return wishlistRefreshInFlightRef.current;
+    },
+    [fetchGuestWishlistProducts, fetchServerWishlist],
+  );
+
+  const refreshCart = useCallback(
+    async (options: RefreshOptions = {}) => {
+      const now = Date.now();
+      if (!options.force && now - lastCartRefreshAtRef.current < REFRESH_THROTTLE_MS) {
+        return cartRefreshInFlightRef.current ?? Promise.resolve();
+      }
+      if (cartRefreshInFlightRef.current) return cartRefreshInFlightRef.current;
+
+      cartRefreshInFlightRef.current = (async () => {
+        try {
+          await fetchServerCart();
+          lastCartRefreshAtRef.current = Date.now();
+        } catch {
+          setCart(readGuestCartItems());
+          lastCartRefreshAtRef.current = Date.now();
+        } finally {
+          cartRefreshInFlightRef.current = null;
+        }
+      })();
+
+      return cartRefreshInFlightRef.current;
+    },
+    [fetchServerCart],
+  );
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -369,27 +425,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await mergeGuestCartIntoServer();
       }
 
-      await Promise.all([refreshWishlist(), refreshCart()]);
+      await Promise.all([refreshWishlist({ force: true }), refreshCart({ force: true })]);
     };
 
     void syncUserState();
 
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
       setUserEmail(session?.user?.email ?? null);
 
-      if (session?.user) {
+      if (event === "SIGNED_IN" && session?.user) {
         void (async () => {
           await mergeGuestWishlistIntoServer();
           await mergeGuestCartIntoServer();
-          await Promise.all([refreshWishlist(), refreshCart()]);
+          await Promise.all([refreshWishlist({ force: true }), refreshCart({ force: true })]);
         })();
         return;
       }
 
-      const guestIds = readGuestWishlistIds();
-      setWishlistIds(guestIds);
-      setCart(readGuestCartItems());
-      void fetchGuestWishlistProducts(guestIds);
+      if (event === "SIGNED_OUT") {
+        const guestIds = readGuestWishlistIds();
+        setWishlistIds(guestIds);
+        setCart(readGuestCartItems());
+        void fetchGuestWishlistProducts(guestIds);
+      }
     });
 
     return () => {
@@ -424,20 +482,85 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       userEmail,
       cartCount: cart.reduce((count, item) => count + item.quantity, 0),
       wishlistCount: wishlistIds.length,
-      addToCart: (product) => {
+      addToCart: async (product) => {
         const productId = String(product.id ?? "").trim();
-        if (!productId) return;
+        if (!productId) {
+          return { ok: false, code: "invalid", message: "Invalid product." } as CartActionResult;
+        }
 
         const stock = getSafeStock(product);
         if (stock <= 0) {
-          setToastMessage("This product is currently out of stock.");
-          return;
+          return {
+            ok: false,
+            code: "out_of_stock",
+            message: "This product is currently out of stock.",
+            available: 0,
+          } as CartActionResult;
         }
 
         if (userEmail) {
+          let previousQuantity = 0;
+          let optimisticQuantity = 0;
+          let optimisticBlocked: CartActionResult | null = null;
+          setCart((current) => {
+            const index = current.findIndex((item) => item.product.id === product.id);
+            if (index > -1) {
+              const existing = current[index];
+              const available = getSafeStock(existing.product);
+              previousQuantity = existing.quantity;
+              if (existing.quantity >= available) {
+                optimisticBlocked = {
+                  ok: false,
+                  code: "stock_limit",
+                  message: getStockLimitMessage(Math.max(0, available - existing.quantity)),
+                  available,
+                  quantity: existing.quantity,
+                };
+                return current;
+              }
+              optimisticQuantity = existing.quantity + 1;
+              return current.map((item, itemIndex) =>
+                itemIndex !== index
+                  ? item
+                  : {
+                      ...item,
+                      quantity: optimisticQuantity,
+                    },
+              );
+            }
+
+            previousQuantity = 0;
+            optimisticQuantity = 1;
+            return [...current, { product, quantity: 1 }];
+          });
+
+          if (optimisticBlocked) return optimisticBlocked;
+
           void (async () => {
+            const rollbackOptimisticCart = () => {
+              setCart((current) => {
+                const existingIndex = current.findIndex((item) => item.product.id === product.id);
+                if (previousQuantity <= 0) {
+                  if (existingIndex === -1) return current;
+                  return current.filter((item) => item.product.id !== product.id);
+                }
+                if (existingIndex === -1) return [...current, { product, quantity: previousQuantity }];
+                return current.map((item, itemIndex) =>
+                  itemIndex !== existingIndex
+                    ? item
+                    : {
+                        ...item,
+                        quantity: previousQuantity,
+                      },
+                );
+              });
+            };
+
             const token = await getAccessToken();
-            if (!token) return;
+            if (!token) {
+              rollbackOptimisticCart();
+              return;
+            }
 
             const response = await fetch("/api/cart", {
               method: "POST",
@@ -449,96 +572,134 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 product_id: productId,
                 quantity: 1,
               }),
-            });
-
-            if (!response.ok) {
-              const payload = await response.json().catch(() => ({}));
-              setToastMessage(payload?.error ?? "Could not add to cart.");
-              await refreshCart();
+            }).catch(() => null);
+            if (!response) {
+              rollbackOptimisticCart();
               return;
             }
 
-            setToastMessage("Added to cart.");
-            await refreshCart();
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              rollbackOptimisticCart();
+              return;
+            }
+
+            if (Array.isArray(payload?.items)) {
+              setCart(normalizeCartItems(payload.items as CartApiItem[]));
+            }
           })();
-          return;
+
+          return { ok: true, code: "added", message: "Added to cart.", quantity: optimisticQuantity } as CartActionResult;
         }
 
+        let result: CartActionResult = { ok: false, code: "error", message: "Could not add to cart." };
         setCart((current) => {
           const index = current.findIndex((item) => item.product.id === product.id);
           if (index > -1) {
+            const existing = current[index];
+            const available = getSafeStock(existing.product);
+            if (existing.quantity >= available) {
+              result = {
+                ok: false,
+                code: "stock_limit",
+                message: getStockLimitMessage(Math.max(0, available - existing.quantity)),
+                available,
+                quantity: existing.quantity,
+              };
+              return current;
+            }
+
+            const nextQuantity = existing.quantity + 1;
+            result = { ok: true, code: "added", message: "Added to cart.", quantity: nextQuantity };
             return current.map((item, itemIndex) =>
               itemIndex !== index
                 ? item
                 : {
                     ...item,
-                    quantity: Math.min(getSafeStock(item.product), item.quantity + 1),
+                    quantity: nextQuantity,
                   },
             );
           }
+          result = { ok: true, code: "added", message: "Added to cart.", quantity: 1 };
           return [...current, { product, quantity: 1 }];
         });
-
-        setToastMessage("Added to guest cart. Login to sync across devices.");
+        return result;
       },
-      removeFromCart: (productId) => {
+      removeFromCart: async (productId) => {
+        const previousItem = cart.find((item) => item.product.id === productId) ?? null;
         setCart((current) => current.filter((item) => item.product.id !== productId));
 
         if (userEmail) {
-          void (async () => {
-            const token = await getAccessToken();
-            if (!token) return;
-
-            const existing = cart.find((item) => item.product.id === productId);
-            if (!existing?.cartItemId) {
-              await refreshCart();
-              return;
+          const token = await getAccessToken();
+          if (!token) {
+            if (previousItem) {
+              setCart((current) => [...current, previousItem]);
             }
+            return { ok: false, code: "unauthorized", message: "Please login to continue." };
+          }
 
-            const response = await fetch(`/api/cart/${existing.cartItemId}`, {
-              method: "DELETE",
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            });
+          const existing = cart.find((item) => item.product.id === productId);
+          if (!existing?.cartItemId) {
+            return { ok: true, code: "removed", message: "Removed from cart." };
+          }
 
-            if (!response.ok) {
-              const payload = await response.json().catch(() => ({}));
-              setToastMessage(payload?.error ?? "Could not remove cart item.");
-              await refreshCart();
-              return;
+          const response = await fetch(`/api/cart/${existing.cartItemId}`, {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            if (previousItem) {
+              setCart((current) => {
+                const alreadyExists = current.some((item) => item.product.id === previousItem.product.id);
+                if (alreadyExists) return current;
+                return [...current, previousItem];
+              });
             }
-
-            setToastMessage("Removed from cart.");
-            await refreshCart();
-          })();
+            return { ok: false, code: "error", message: payload?.error ?? "Could not remove cart item." };
+          }
         }
+        return { ok: true, code: "removed", message: "Removed from cart." };
       },
-      updateCartQuantity: (productId, quantity) => {
+      updateCartQuantity: async (productId, quantity) => {
         const existing = cart.find((item) => item.product.id === productId);
-        if (!existing) return;
+        if (!existing) return { ok: false, code: "invalid", message: "Cart item not found." };
+        const previousQuantity = existing.quantity;
 
         if (quantity <= 0) {
           setCart((current) => current.filter((item) => item.product.id !== productId));
 
           if (userEmail) {
-            void (async () => {
-              const token = await getAccessToken();
-              if (!token || !existing.cartItemId) return;
-              await fetch(`/api/cart/${existing.cartItemId}`, {
-                method: "DELETE",
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                },
-              }).catch(() => null);
-              await refreshCart();
-            })();
+            const token = await getAccessToken();
+            if (!token || !existing.cartItemId) {
+              setCart((current) => [...current, existing]);
+              return { ok: false, code: "unauthorized", message: "Please login to continue." };
+            }
+            const response = await fetch(`/api/cart/${existing.cartItemId}`, {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }).catch(() => null);
+            if (!response?.ok) {
+              setCart((current) => {
+                const alreadyExists = current.some((item) => item.product.id === existing.product.id);
+                if (alreadyExists) return current;
+                return [...current, existing];
+              });
+              return { ok: false, code: "error", message: "Could not remove cart item." };
+            }
           }
 
-          return;
+          return { ok: true, code: "removed", message: "Removed from cart.", quantity: 0 };
         }
 
-        const cappedQuantity = Math.min(Math.max(1, quantity), Math.max(1, getSafeStock(existing.product)));
+        const safeStock = getSafeStock(existing.product);
+        const cappedQuantity = Math.min(Math.max(1, quantity), Math.max(1, safeStock));
+        const wasCapped = quantity > safeStock;
 
         setCart((current) =>
           current.map((item) =>
@@ -548,33 +709,69 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   quantity: cappedQuantity,
                 }
               : item,
-          ),
+            ),
         );
 
         if (userEmail) {
-          void (async () => {
-            const token = await getAccessToken();
-            if (!token || !existing.cartItemId) return;
+          const token = await getAccessToken();
+          if (!token || !existing.cartItemId) {
+            setCart((current) =>
+              current.map((item) =>
+                item.product.id === productId
+                  ? {
+                      ...item,
+                      quantity: previousQuantity,
+                    }
+                  : item,
+              ),
+            );
+            return { ok: false, code: "unauthorized", message: "Please login to continue." };
+          }
 
-            const response = await fetch(`/api/cart/${existing.cartItemId}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({ quantity: cappedQuantity }),
-            });
+          const response = await fetch(`/api/cart/${existing.cartItemId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ quantity: cappedQuantity }),
+          });
 
-            if (!response.ok) {
-              const payload = await response.json().catch(() => ({}));
-              setToastMessage(payload?.error ?? "Could not update cart quantity.");
-              await refreshCart();
-              return;
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            setCart((current) =>
+              current.map((item) =>
+                item.product.id === productId
+                  ? {
+                      ...item,
+                      quantity: previousQuantity,
+                    }
+                  : item,
+              ),
+            );
+            if (response.status === 409) {
+              const available = Number(payload?.available ?? safeStock);
+              return {
+                ok: false,
+                code: available <= 0 ? "out_of_stock" : "stock_limit",
+                message: available <= 0 ? "This product is currently out of stock." : getStockLimitMessage(Math.max(0, available - cappedQuantity)),
+                available,
+                quantity: cappedQuantity,
+              };
             }
-
-            await refreshCart();
-          })();
+            return { ok: false, code: "error", message: payload?.error ?? "Could not update cart quantity." };
+          }
         }
+        if (wasCapped) {
+          return {
+            ok: false,
+            code: "stock_limit",
+            message: getStockLimitMessage(Math.max(0, safeStock - cappedQuantity)),
+            available: safeStock,
+            quantity: cappedQuantity,
+          };
+        }
+        return { ok: true, code: "updated", message: "Cart updated.", quantity: cappedQuantity };
       },
       addToWishlist: (product) => {
         const productId = String(product.id);
@@ -604,20 +801,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             });
 
             if (!response.ok) {
-              setToastMessage("Could not add to wishlist.");
-              await refreshWishlist();
+              await refreshWishlist({ force: true });
               return;
             }
-
-            setToastMessage("Added to wishlist.");
-            await refreshWishlist();
           })();
           return;
         }
 
         const nextGuestIds = [...new Set([...readGuestWishlistIds(), productId])];
         writeGuestWishlistIds(nextGuestIds);
-        setToastMessage("Saved to guest wishlist. Login to sync across devices.");
       },
       removeFromWishlist: (productId) => {
         setWishlistIds((current) => current.filter((id) => id !== productId));
@@ -635,29 +827,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             });
 
             if (!response.ok) {
-              setToastMessage("Could not remove from wishlist.");
-              await refreshWishlist();
+              await refreshWishlist({ force: true });
               return;
             }
-
-            setToastMessage("Removed from wishlist.");
-            await refreshWishlist();
           })();
           return;
         }
 
         const nextGuestIds = readGuestWishlistIds().filter((id) => id !== productId);
         writeGuestWishlistIds(nextGuestIds);
-        setToastMessage("Removed from guest wishlist.");
       },
       moveWishlistToCart: (productId) => {
         const entry = wishlist.find((item) => item.productId === productId);
         if (!entry?.product) {
-          setToastMessage("This product is unavailable.");
           return;
         }
         if (getSafeStock(entry.product) <= 0) {
-          setToastMessage("This product is currently out of stock.");
           return;
         }
 
@@ -704,8 +889,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const nextGuestIds = readGuestWishlistIds().filter((id) => id !== productId);
           writeGuestWishlistIds(nextGuestIds);
         }
-
-        setToastMessage("Moved to cart.");
       },
       isWishlisted: (productId) => wishlistIds.includes(productId),
       clearCart: () => {
@@ -738,11 +921,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   return (
     <StoreContext.Provider value={value}>
       {children}
-      {toastMessage ? (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-[var(--text-primary)] px-4 py-2 text-xs text-white shadow-lg">
-          {toastMessage}
-        </div>
-      ) : null}
     </StoreContext.Provider>
   );
 }

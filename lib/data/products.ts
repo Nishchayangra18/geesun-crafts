@@ -9,6 +9,7 @@ type ProductRow = {
   image: string | null;
   price: number;
   quantity: number | null;
+  created_at: string | null;
   style: string | null;
   medium: string | null;
   size: string | null;
@@ -30,6 +31,7 @@ function mapProduct(row: ProductRow): Product {
       "https://images.unsplash.com/photo-1579548122080-c35fd6820ecb?auto=format&fit=crop&w=1200&q=80",
     price: Number(row.price),
     quantity: Math.max(0, Number(row.quantity ?? 0)),
+    createdAt: row.created_at ?? undefined,
     rating: Number(row.rating ?? 4.6),
     style: (row.style ?? "Modern") as Product["style"],
     medium: (row.medium ?? "Oil on Canvas") as Product["medium"],
@@ -59,7 +61,7 @@ export async function fetchProducts() {
   const { data, error } = await supabase
     .from("products")
     .select(
-      "id, slug, title, description, image, price, quantity, style, medium, size, dimensions, artist, featured, bestseller",
+      "id, slug, title, description, image, price, quantity, created_at, style, medium, size, dimensions, artist, featured, bestseller",
     )
     .order("created_at", { ascending: false });
 
@@ -83,7 +85,7 @@ export async function fetchProductBySlug(slug: string) {
   const { data, error } = await supabase
     .from("products")
     .select(
-      "id, slug, title, description, image, price, quantity, style, medium, size, dimensions, artist, featured, bestseller",
+      "id, slug, title, description, image, price, quantity, created_at, style, medium, size, dimensions, artist, featured, bestseller",
     )
     .eq("slug", slug)
     .maybeSingle();

@@ -101,7 +101,7 @@ export function SiteHeader() {
           <Link href="/wishlist" className="hover:text-[var(--text-primary)]">
             Wishlist ({wishlistCount})
           </Link>
-          <Link href="/cart" className="hover:text-[var(--text-primary)]">
+          <Link href="/cart" data-cart-icon className="hover:text-[var(--text-primary)]">
             Cart ({cartCount})
           </Link>
 
