@@ -10,6 +10,7 @@ type ProductRow = {
   image: string | null;
   price: number;
   quantity: number | null;
+  max_quantity?: number | null;
   style: string | null;
   medium: string | null;
   size: string | null;
@@ -38,6 +39,7 @@ function mapProduct(row: ProductRow) {
       "https://images.unsplash.com/photo-1579548122080-c35fd6820ecb?auto=format&fit=crop&w=1200&q=80",
     price: Number(row.price),
     quantity: Math.max(0, Number(row.quantity ?? 0)),
+    maxQuantity: Math.max(1, Number(row.max_quantity ?? row.quantity ?? 10)),
     rating: 4.6,
     style: (row.style ?? "Modern") as "Abstract" | "Traditional" | "Modern" | "Custom",
     medium: (row.medium ?? "Oil on Canvas") as
@@ -95,7 +97,7 @@ async function buildCartPayload(supabase: NonNullable<ReturnType<typeof getSupab
   const { data: productRows, error: productRowsError } = await supabase
     .from("products")
     .select(
-      "id, slug, title, description, image, price, quantity, style, medium, size, dimensions, artist, featured, bestseller",
+      "id, slug, title, description, image, price, quantity, max_quantity, style, medium, size, dimensions, artist, featured, bestseller",
     )
     .in("id", productIds);
   if (productRowsError) throw productRowsError;

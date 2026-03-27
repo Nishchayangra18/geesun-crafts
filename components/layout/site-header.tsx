@@ -98,7 +98,7 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex items-center gap-3 text-xs text-[var(--text-muted)] md:gap-5 md:text-sm">
-          <Link href="/wishlist" className="hover:text-[var(--text-primary)]">
+          <Link href="/wishlist" data-wishlist-icon className="hover:text-[var(--text-primary)]">
             Wishlist ({wishlistCount})
           </Link>
           <Link href="/cart" data-cart-icon className="hover:text-[var(--text-primary)]">

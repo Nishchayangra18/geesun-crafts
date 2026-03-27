@@ -10,6 +10,7 @@ export type Product = {
   image: string;
   price: number;
   quantity: number;
+  maxQuantity?: number;
   createdAt?: string;
   originalPrice?: number;
   rating: number;

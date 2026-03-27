@@ -28,7 +28,7 @@ type StoreContextValue = {
   addToCart: (product: Product) => Promise<CartActionResult>;
   removeFromCart: (productId: string) => Promise<CartActionResult>;
   updateCartQuantity: (productId: string, quantity: number) => Promise<CartActionResult>;
-  addToWishlist: (product: Product) => void;
+  addToWishlist: (product: Product) => Promise<WishlistActionResult>;
   removeFromWishlist: (productId: string) => void;
   moveWishlistToCart: (productId: string) => void;
   isWishlisted: (productId: string) => boolean;
@@ -50,6 +50,12 @@ export type CartActionResult = {
   message: string;
   available?: number;
   quantity?: number;
+};
+
+type WishlistActionResult = {
+  ok: boolean;
+  code: "added" | "already_wishlisted" | "unauthorized" | "error";
+  message: string;
 };
 
 type WishlistApiItem = {
@@ -499,97 +505,60 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
 
         if (userEmail) {
-          let previousQuantity = 0;
-          let optimisticQuantity = 0;
-          let optimisticBlocked: CartActionResult | null = null;
-          setCart((current) => {
-            const index = current.findIndex((item) => item.product.id === product.id);
-            if (index > -1) {
-              const existing = current[index];
-              const available = getSafeStock(existing.product);
-              previousQuantity = existing.quantity;
-              if (existing.quantity >= available) {
-                optimisticBlocked = {
-                  ok: false,
-                  code: "stock_limit",
-                  message: getStockLimitMessage(Math.max(0, available - existing.quantity)),
-                  available,
-                  quantity: existing.quantity,
-                };
-                return current;
-              }
-              optimisticQuantity = existing.quantity + 1;
-              return current.map((item, itemIndex) =>
-                itemIndex !== index
-                  ? item
-                  : {
-                      ...item,
-                      quantity: optimisticQuantity,
-                    },
-              );
+          const token = await getAccessToken();
+          if (!token) {
+            return { ok: false, code: "unauthorized", message: "Please login to continue." } as CartActionResult;
+          }
+
+          const response = await fetch("/api/cart", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              product_id: productId,
+              quantity: 1,
+            }),
+          }).catch(() => null);
+
+          if (!response) {
+            await refreshCart({ force: true });
+            return { ok: false, code: "error", message: "Could not add to cart." } as CartActionResult;
+          }
+
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            if (response.status === 409) {
+              const available = Number(payload?.available ?? stock);
+              return {
+                ok: false,
+                code: available <= 0 ? "out_of_stock" : "stock_limit",
+                message:
+                  available <= 0
+                    ? "This product is currently out of stock."
+                    : getStockLimitMessage(Math.max(0, available - Number(payload?.quantity ?? 0))),
+                available,
+              } as CartActionResult;
             }
+            await refreshCart({ force: true });
+            return { ok: false, code: "error", message: String(payload?.error ?? "Could not add to cart.") } as CartActionResult;
+          }
 
-            previousQuantity = 0;
-            optimisticQuantity = 1;
-            return [...current, { product, quantity: 1 }];
-          });
+          if (Array.isArray(payload?.items)) {
+            const normalizedItems = normalizeCartItems(payload.items as CartApiItem[]);
+            setCart(normalizedItems);
+            const updated = normalizedItems.find((item) => item.product.id === productId);
+            return {
+              ok: true,
+              code: "added",
+              message: "Added to cart.",
+              quantity: updated?.quantity ?? 1,
+            } as CartActionResult;
+          }
 
-          if (optimisticBlocked) return optimisticBlocked;
-
-          void (async () => {
-            const rollbackOptimisticCart = () => {
-              setCart((current) => {
-                const existingIndex = current.findIndex((item) => item.product.id === product.id);
-                if (previousQuantity <= 0) {
-                  if (existingIndex === -1) return current;
-                  return current.filter((item) => item.product.id !== product.id);
-                }
-                if (existingIndex === -1) return [...current, { product, quantity: previousQuantity }];
-                return current.map((item, itemIndex) =>
-                  itemIndex !== existingIndex
-                    ? item
-                    : {
-                        ...item,
-                        quantity: previousQuantity,
-                      },
-                );
-              });
-            };
-
-            const token = await getAccessToken();
-            if (!token) {
-              rollbackOptimisticCart();
-              return;
-            }
-
-            const response = await fetch("/api/cart", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                product_id: productId,
-                quantity: 1,
-              }),
-            }).catch(() => null);
-            if (!response) {
-              rollbackOptimisticCart();
-              return;
-            }
-
-            const payload = await response.json().catch(() => ({}));
-            if (!response.ok) {
-              rollbackOptimisticCart();
-              return;
-            }
-
-            if (Array.isArray(payload?.items)) {
-              setCart(normalizeCartItems(payload.items as CartApiItem[]));
-            }
-          })();
-
-          return { ok: true, code: "added", message: "Added to cart.", quantity: optimisticQuantity } as CartActionResult;
+          await refreshCart({ force: true });
+          return { ok: true, code: "added", message: "Added to cart." } as CartActionResult;
         }
 
         let result: CartActionResult = { ok: false, code: "error", message: "Could not add to cart." };
@@ -773,43 +742,65 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         return { ok: true, code: "updated", message: "Cart updated.", quantity: cappedQuantity };
       },
-      addToWishlist: (product) => {
+      addToWishlist: async (product) => {
         const productId = String(product.id);
-        if (!productId) return;
-        if (wishlistIds.includes(productId)) return;
-
-        setWishlistIds((current) => [...current, productId]);
-        setWishlist((current) => [
-          {
-            productId,
-            product,
-          },
-          ...current.filter((item) => item.productId !== productId),
-        ]);
-
-        if (userEmail) {
-          void (async () => {
-            const token = await getAccessToken();
-            if (!token) return;
-            const response = await fetch("/api/wishlist", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({ product_id: productId }),
-            });
-
-            if (!response.ok) {
-              await refreshWishlist({ force: true });
-              return;
-            }
-          })();
-          return;
+        if (!productId) return { ok: false, code: "error", message: "Invalid product." } as WishlistActionResult;
+        if (wishlistIds.includes(productId)) {
+          return {
+            ok: false,
+            code: "already_wishlisted",
+            message: "Already in wishlist.",
+          } as WishlistActionResult;
         }
 
+        const applyWishlistState = () => {
+          setWishlistIds((current) => [...current, productId]);
+          setWishlist((current) => [
+            {
+              productId,
+              product,
+            },
+            ...current.filter((item) => item.productId !== productId),
+          ]);
+        };
+
+        if (userEmail) {
+          const token = await getAccessToken();
+          if (!token) {
+            return { ok: false, code: "unauthorized", message: "Please login to continue." } as WishlistActionResult;
+          }
+          const response = await fetch("/api/wishlist", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ product_id: productId }),
+          }).catch(() => null);
+
+          if (!response) {
+            await refreshWishlist({ force: true });
+            return { ok: false, code: "error", message: "Could not update wishlist." } as WishlistActionResult;
+          }
+
+          if (!response.ok) {
+            await refreshWishlist({ force: true });
+            const payload = await response.json().catch(() => ({}));
+            return {
+              ok: false,
+              code: "error",
+              message: String(payload?.error ?? "Could not update wishlist."),
+            } as WishlistActionResult;
+          }
+
+          applyWishlistState();
+          return { ok: true, code: "added", message: "Added to wishlist." } as WishlistActionResult;
+        }
+
+        applyWishlistState();
         const nextGuestIds = [...new Set([...readGuestWishlistIds(), productId])];
         writeGuestWishlistIds(nextGuestIds);
+        return { ok: true, code: "added", message: "Added to wishlist." } as WishlistActionResult;
       },
       removeFromWishlist: (productId) => {
         setWishlistIds((current) => current.filter((id) => id !== productId));

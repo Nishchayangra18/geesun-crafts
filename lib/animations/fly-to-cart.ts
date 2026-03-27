@@ -1,24 +1,45 @@
 "use client";
 
-type FlyToCartOptions = {
+type FlyAnimationType = "cart" | "wishlist";
+
+type FlyToTargetOptions = {
   sourceElement: HTMLElement;
-  cartSelector?: string;
+  targetSelector?: string;
+  type?: FlyAnimationType;
+  onComplete?: () => void | boolean | Promise<void | boolean>;
 };
 
-function wait(ms: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+async function waitForAnimation(animation: Animation | null | undefined) {
+  if (!animation) return;
+  await animation.finished.catch(() => undefined);
 }
 
-export async function runFlyToCartAnimation({
+const DEFAULT_TARGET_SELECTOR: Record<FlyAnimationType, string> = {
+  cart: "[data-cart-icon]",
+  wishlist: "[data-wishlist-icon]",
+};
+
+const LANDING_SCALE: Record<FlyAnimationType, number> = {
+  cart: 1.15,
+  wishlist: 1.14,
+};
+
+export async function runFlyToTargetAnimation({
   sourceElement,
-  cartSelector = "[data-cart-icon]",
-}: FlyToCartOptions) {
-  const cartElement = document.querySelector(cartSelector) as HTMLElement | null;
-  if (!cartElement) return;
+  targetSelector,
+  type = "cart",
+  onComplete,
+}: FlyToTargetOptions) {
+  const resolvedSelector = targetSelector ?? DEFAULT_TARGET_SELECTOR[type];
+  const targetElement = document.querySelector(resolvedSelector) as HTMLElement | null;
+  if (!targetElement) {
+    await onComplete?.();
+    return;
+  }
 
   const sourceImage = sourceElement.querySelector("img") as HTMLImageElement | null;
   const sourceRect = (sourceImage ?? sourceElement).getBoundingClientRect();
-  const targetRect = cartElement.getBoundingClientRect();
+  const targetRect = targetElement.getBoundingClientRect();
 
   const flyNode = document.createElement("div");
   flyNode.style.position = "fixed";
@@ -43,8 +64,27 @@ export async function runFlyToCartAnimation({
 
   document.body.appendChild(flyNode);
 
-  // Let browser commit element before animating.
-  await wait(16);
+  const takeoffAnimation = sourceElement.animate(
+    [
+      {
+        transform: "translate3d(0, 0, 0) scale(1)",
+        filter: "brightness(1) saturate(1)",
+      },
+      {
+        transform: "translate3d(0, -10px, 0) scale(1.03)",
+        filter: "brightness(1.08) saturate(1.08)",
+      },
+      {
+        transform: "translate3d(0, 0, 0) scale(1)",
+        filter: "brightness(1) saturate(1)",
+      },
+    ],
+    {
+      duration: 260,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    },
+  );
+  await waitForAnimation(takeoffAnimation);
 
   const startCenterX = sourceRect.left + flyNode.offsetWidth / 2;
   const startCenterY = sourceRect.top + flyNode.offsetHeight / 2;
@@ -57,7 +97,7 @@ export async function runFlyToCartAnimation({
   const arcX = dx * 0.45;
   const arcY = dy * 0.45 - 44;
 
-  flyNode.animate(
+  const flightAnimation = flyNode.animate(
     [
       { transform: "translate3d(0, 0, 0) scale(1) rotate(0deg)", opacity: 0.98, offset: 0 },
       {
@@ -77,15 +117,17 @@ export async function runFlyToCartAnimation({
       fill: "forwards",
     },
   );
+  await waitForAnimation(flightAnimation);
 
-  await wait(640);
+  const completionResult = await onComplete?.();
   flyNode.remove();
 
-  // Landing feedback on cart anchor.
-  cartElement.animate(
+  if (completionResult === false) return;
+
+  const landingAnimation = targetElement.animate(
     [
       { transform: "scale(1)" },
-      { transform: "scale(1.15)" },
+      { transform: `scale(${LANDING_SCALE[type]})` },
       { transform: "scale(1.02)" },
       { transform: "scale(1)" },
     ],
@@ -94,4 +136,20 @@ export async function runFlyToCartAnimation({
       easing: "cubic-bezier(0.22, 1, 0.36, 1)",
     },
   );
+  await waitForAnimation(landingAnimation);
+}
+
+type FlyToCartOptions = {
+  sourceElement: HTMLElement;
+  cartSelector?: string;
+  onComplete?: () => void | boolean | Promise<void | boolean>;
+};
+
+export async function runFlyToCartAnimation({ sourceElement, cartSelector, onComplete }: FlyToCartOptions) {
+  await runFlyToTargetAnimation({
+    sourceElement,
+    targetSelector: cartSelector,
+    type: "cart",
+    onComplete,
+  });
 }

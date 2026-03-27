@@ -28,6 +28,7 @@ create table if not exists products (
   image text,
   price numeric not null,
   quantity integer not null default 0 check (quantity >= 0),
+  max_quantity integer not null default 10 check (max_quantity > 0),
   style text,
   medium text,
   size text,
@@ -73,6 +74,22 @@ create table if not exists wishlist (
   created_at timestamptz default now(),
   unique(user_id, product_id)
 );
+
+create table if not exists restock_subscriptions (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid references auth.users(id) on delete set null,
+  email text not null,
+  product_id uuid not null references products(id) on delete cascade,
+  notified boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique(email, product_id)
+);
+
+create index if not exists idx_restock_subscriptions_product_id
+  on restock_subscriptions(product_id);
+
+create index if not exists idx_restock_subscriptions_notified
+  on restock_subscriptions(notified);
 
 create table if not exists event_logs (
   id uuid primary key default uuid_generate_v4(),
