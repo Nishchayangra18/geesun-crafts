@@ -1,6 +1,6 @@
-export type ArtStyle = "Abstract" | "Traditional" | "Modern" | "Custom";
-export type ArtMedium = "Oil on Canvas" | "Acrylic" | "Mixed Media" | "Watercolor";
-export type ArtSize = "Small" | "Medium" | "Large";
+export type ArtStyle = string;
+export type ArtMedium = string;
+export type ArtSize = string;
 
 export type Product = {
   id: string;
@@ -8,12 +8,16 @@ export type Product = {
   title: string;
   description: string;
   image: string;
+  galleryImages: string[];
   price: number;
   quantity: number;
-  maxQuantity?: number;
+  maxQuantity: number;
   createdAt?: string;
   originalPrice?: number;
   rating: number;
+  articleCode: string;
+  setType: string;
+  frame: string;
   style: ArtStyle;
   medium: ArtMedium;
   size: ArtSize;

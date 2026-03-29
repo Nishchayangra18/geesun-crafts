@@ -13,9 +13,9 @@ import { formatINR } from "@/lib/utils";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RESTOCK_GUEST_EMAIL_KEY = "geesun_restock_guest_email";
-const PRIMARY_CTA_CLASS =
+export const PRIMARY_CTA_CLASS =
   "w-full rounded-2xl bg-[#6B7D5E] px-4 py-2.5 text-sm font-medium text-white shadow-[0_12px_24px_rgb(107_125_94_/_32%)] transition hover:bg-[#617254] disabled:cursor-not-allowed disabled:opacity-70";
-const SECONDARY_CTA_CLASS =
+export const SECONDARY_CTA_CLASS =
   "outline-btn inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60";
 
 function readGuestRestockEmail() {
@@ -300,7 +300,11 @@ export function ProductCard({ product }: { product: Product }) {
             <p className="text-xs uppercase tracking-[0.15em] text-[var(--text-muted)]">{product.style}</p>
             <h3 className="mt-1 font-[var(--font-heading)] text-2xl leading-tight">{product.title}</h3>
           </div>
-          <p className="text-sm text-[var(--text-muted)]">{product.dimensions}</p>
+          <div className="space-y-1 text-sm text-[var(--text-muted)]">
+            <p>{product.dimensions}</p>
+            {product.articleCode ? <p className="text-xs">Code: {product.articleCode}</p> : null}
+            {product.setType ? <p className="text-xs">{product.setType}</p> : null}
+          </div>
           <div className="flex items-end justify-between gap-3">
             <p className="text-lg font-semibold">{formatINR(product.price)}</p>
             <p className="text-sm text-[var(--text-muted)]">{product.rating.toFixed(1)} ★</p>

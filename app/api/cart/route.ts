@@ -6,13 +6,17 @@ type ProductRow = {
   id: string;
   slug: string;
   title: string;
+  article_code: string | null;
   description: string | null;
   image: string | null;
+  gallery_images: string[] | null;
   price: number;
   quantity: number | null;
-  max_quantity?: number | null;
+  max_quantity: number | null;
+  set_type: string | null;
   style: string | null;
   medium: string | null;
+  frame: string | null;
   size: string | null;
   dimensions: string | null;
   artist: string | null;
@@ -33,23 +37,23 @@ function mapProduct(row: ProductRow) {
     id: row.id,
     slug: row.slug,
     title: row.title,
+    articleCode: row.article_code ?? "",
     description: row.description ?? "Original handmade painting by Geesun Crafts.",
     image:
       row.image ??
       "https://images.unsplash.com/photo-1579548122080-c35fd6820ecb?auto=format&fit=crop&w=1200&q=80",
+    galleryImages: Array.isArray(row.gallery_images) ? row.gallery_images.filter(Boolean) : [],
     price: Number(row.price),
     quantity: Math.max(0, Number(row.quantity ?? 0)),
     maxQuantity: Math.max(1, Number(row.max_quantity ?? row.quantity ?? 10)),
+    setType: row.set_type ?? "",
     rating: 4.6,
-    style: (row.style ?? "Modern") as "Abstract" | "Traditional" | "Modern" | "Custom",
-    medium: (row.medium ?? "Oil on Canvas") as
-      | "Oil on Canvas"
-      | "Acrylic"
-      | "Mixed Media"
-      | "Watercolor",
-    size: (row.size ?? "Medium") as "Small" | "Medium" | "Large",
+    style: row.style ?? "",
+    medium: row.medium ?? "",
+    frame: row.frame ?? "",
+    size: row.size ?? "",
     dimensions: row.dimensions ?? '30" x 40"',
-    artist: row.artist ?? "Geesun Studio",
+    artist: row.artist ?? "Geesun Crafts",
     featured: Boolean(row.featured),
     bestseller: Boolean(row.bestseller),
   };
@@ -97,7 +101,7 @@ async function buildCartPayload(supabase: NonNullable<ReturnType<typeof getSupab
   const { data: productRows, error: productRowsError } = await supabase
     .from("products")
     .select(
-      "id, slug, title, description, image, price, quantity, max_quantity, style, medium, size, dimensions, artist, featured, bestseller",
+      "id, slug, title, article_code, description, image, gallery_images, price, quantity, max_quantity, set_type, style, medium, frame, size, dimensions, artist, featured, bestseller",
     )
     .in("id", productIds);
   if (productRowsError) throw productRowsError;

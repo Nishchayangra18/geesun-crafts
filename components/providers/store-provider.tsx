@@ -215,20 +215,21 @@ function normalizeCartItems(items: CartApiItem[]) {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [cart, setCart] = useState<CartItem[]>(() => readGuestCartItems());
-  const [wishlistIds, setWishlistIds] = useState<string[]>(() => readGuestWishlistIds());
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [wishlistIds, setWishlistIds] = useState<string[]>([]);
   const [wishlist, setWishlist] = useState<WishlistEntry[]>([]);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [guestStateHydrated, setGuestStateHydrated] = useState(false);
   const cartRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const wishlistRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const lastCartRefreshAtRef = useRef(0);
   const lastWishlistRefreshAtRef = useRef(0);
 
   useEffect(() => {
-    if (!userEmail) {
+    if (!userEmail && guestStateHydrated) {
       writeGuestCartItems(cart);
     }
-  }, [cart, userEmail]);
+  }, [cart, guestStateHydrated, userEmail]);
 
   useEffect(() => {
     localStorage.removeItem(LEGACY_WISHLIST_KEY);
@@ -264,6 +265,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setWishlist(ids.map((id) => ({ productId: id, product: null })));
     }
   }, []);
+
+  useEffect(() => {
+    const guestCart = readGuestCartItems();
+    const guestIds = readGuestWishlistIds();
+
+    setCart(guestCart);
+    setWishlistIds(guestIds);
+    void fetchGuestWishlistProducts(guestIds);
+    setGuestStateHydrated(true);
+  }, [fetchGuestWishlistProducts]);
 
   const fetchServerCart = useCallback(async () => {
     const token = await getAccessToken();

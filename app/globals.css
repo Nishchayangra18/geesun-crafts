@@ -108,3 +108,18 @@ img {
   background: linear-gradient(90deg, transparent, var(--border-soft), transparent);
   margin-block: 1rem;
 }
+
+@keyframes pageSlideFade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-slide-fade {
+  animation: pageSlideFade 0.3s ease;
+}

@@ -1,33 +1,44 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ProductCard } from "@/components/commerce/product-card";
+import { Pagination } from "@/components/shop/pagination";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import type { ArtMedium, ArtSize, ArtStyle, Product } from "@/lib/types";
-
-const styles: ArtStyle[] = ["Abstract", "Traditional", "Modern", "Custom"];
-const sizes: ArtSize[] = ["Small", "Medium", "Large"];
-const media: ArtMedium[] = ["Oil on Canvas", "Acrylic", "Mixed Media", "Watercolor"];
+import type { Product } from "@/lib/types";
 
 type SortType = "none" | "featured" | "bestseller" | "price_asc" | "price_desc" | "newest" | "quantity";
 type StockFilter = "all" | "in_stock" | "out_of_stock" | "low_stock";
 
 export function ShopShell({ products }: { products: Product[] }) {
+  const itemsPerPage = 12;
   const [search, setSearch] = useState("");
-  const [style, setStyle] = useState<ArtStyle | "">("");
-  const [selectedSizes, setSelectedSizes] = useState<ArtSize[]>([]);
-  const [medium, setMedium] = useState<ArtMedium | "">("");
+  const [style, setStyle] = useState<string>("");
+  const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
+  const [medium, setMedium] = useState<string>("");
+  const [setType, setSetType] = useState<string>("");
   const [selectedSort, setSelectedSort] = useState<SortType>("none");
   const [bestsellerFilter, setBestsellerFilter] = useState(false);
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [priceLimit, setPriceLimit] = useState(8000);
+  const [currentPage, setCurrentPage] = useState(1);
+  const productsGridRef = useRef<HTMLDivElement | null>(null);
+
+  const styleOptions = useMemo(() => [...new Set(products.map((product) => product.style).filter(Boolean))], [products]);
+  const sizeOptions = useMemo(() => [...new Set(products.map((product) => product.size).filter(Boolean))], [products]);
+  const mediumOptions = useMemo(() => [...new Set(products.map((product) => product.medium).filter(Boolean))], [products]);
+  const setTypeOptions = useMemo(() => [...new Set(products.map((product) => product.setType).filter(Boolean))], [products]);
 
   const filteredProducts = useMemo<Product[]>(() => {
     const base = products.filter((product) => {
-      const inSearch = product.title.toLowerCase().includes(search.toLowerCase());
+      const normalizedSearch = search.toLowerCase();
+      const inSearch =
+        product.title.toLowerCase().includes(normalizedSearch) ||
+        product.articleCode.toLowerCase().includes(normalizedSearch) ||
+        product.style.toLowerCase().includes(normalizedSearch);
       const inStyle = style ? product.style === style : true;
       const inSize = selectedSizes.length ? selectedSizes.includes(product.size) : true;
       const inMedium = medium ? product.medium === medium : true;
+      const inSetType = setType ? product.setType === setType : true;
       const inPrice = product.price <= priceLimit;
       const inBestseller = bestsellerFilter ? Boolean(product.bestseller) : true;
       const inStock =
@@ -39,7 +50,7 @@ export function ShopShell({ products }: { products: Product[] }) {
               ? product.quantity <= 0
               : product.quantity > 0 && product.quantity <= 3;
 
-      return inSearch && inStyle && inSize && inMedium && inPrice && inBestseller && inStock;
+      return inSearch && inStyle && inSize && inMedium && inSetType && inPrice && inBestseller && inStock;
     });
 
     if (selectedSort === "none") {
@@ -63,6 +74,7 @@ export function ShopShell({ products }: { products: Product[] }) {
   }, [
     bestsellerFilter,
     medium,
+    setType,
     priceLimit,
     products,
     search,
@@ -73,16 +85,21 @@ export function ShopShell({ products }: { products: Product[] }) {
   ]);
 
   const activeSizeChips = selectedSizes;
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
+  const normalizedCurrentPage = Math.min(currentPage, totalPages);
+  const pageStartIndex = (normalizedCurrentPage - 1) * itemsPerPage;
+  const visibleProducts = filteredProducts.slice(pageStartIndex, pageStartIndex + itemsPerPage);
   const hasActiveFilters =
     Boolean(search) ||
     Boolean(style) ||
     Boolean(medium) ||
+    Boolean(setType) ||
     selectedSizes.length > 0 ||
     bestsellerFilter ||
     stockFilter !== "all" ||
     priceLimit < 9000;
 
-  function toggleSize(nextSize: ArtSize) {
+  function toggleSize(nextSize: string) {
     setSelectedSizes((current) =>
       current.includes(nextSize) ? current.filter((size) => size !== nextSize) : [...current, nextSize],
     );
@@ -93,9 +110,19 @@ export function ShopShell({ products }: { products: Product[] }) {
     setStyle("");
     setSelectedSizes([]);
     setMedium("");
+    setSetType("");
     setBestsellerFilter(false);
     setStockFilter("all");
     setPriceLimit(9000);
+  }
+
+  function handlePageChange(nextPage: number) {
+    if (nextPage < 1 || nextPage > totalPages || nextPage === normalizedCurrentPage) {
+      return;
+    }
+
+    setCurrentPage(nextPage);
+    productsGridRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   return (
@@ -132,6 +159,7 @@ export function ShopShell({ products }: { products: Product[] }) {
           ) : null}
           {style ? <FilterChip label={style} onClear={() => setStyle("")} /> : null}
           {medium ? <FilterChip label={medium} onClear={() => setMedium("")} /> : null}
+          {setType ? <FilterChip label={setType} onClear={() => setSetType("")} /> : null}
           {activeSizeChips.map((sizeValue) => (
             <FilterChip key={sizeValue} label={sizeValue} onClear={() => toggleSize(sizeValue)} />
           ))}
@@ -200,21 +228,29 @@ export function ShopShell({ products }: { products: Product[] }) {
             </select>
           </label>
 
-          <SelectBlock label="Style" value={style} onChange={setStyle} options={styles} />
+          <SelectBlock label="Style" value={style} onChange={setStyle} options={styleOptions} />
+          <SelectBlock label="Set Type" value={setType} onChange={setSetType} options={setTypeOptions} />
           <MultiSelectBlock
             label="Size"
             selectedValues={selectedSizes}
             toggleValue={toggleSize}
-            options={sizes}
+            options={sizeOptions}
           />
-          <SelectBlock label="Medium" value={medium} onChange={setMedium} options={media} />
+          <SelectBlock label="Medium" value={medium} onChange={setMedium} options={mediumOptions} />
         </aside>
 
         {filteredProducts.length ? (
-          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {filteredProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
+          <div ref={productsGridRef}>
+            <div key={normalizedCurrentPage} className="page-slide-fade grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+              {visibleProducts.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+            <Pagination
+              currentPage={normalizedCurrentPage}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+            />
           </div>
         ) : (
           <div className="card-surface flex min-h-80 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-[var(--text-muted)]">

@@ -5,14 +5,18 @@ type ProductRow = {
   id: string;
   slug: string;
   title: string;
+  article_code: string | null;
   description: string | null;
   image: string | null;
+  gallery_images: string[] | null;
   price: number;
   quantity: number | null;
-  max_quantity?: number | null;
+  max_quantity: number | null;
+  set_type: string | null;
   created_at: string | null;
   style: string | null;
   medium: string | null;
+  frame: string | null;
   size: string | null;
   dimensions: string | null;
   artist: string | null;
@@ -26,20 +30,24 @@ function mapProduct(row: ProductRow): Product {
     id: row.id,
     slug: row.slug,
     title: row.title,
+    articleCode: row.article_code ?? "",
     description: row.description ?? "Original handmade painting by Geesun Crafts.",
     image:
       row.image ??
       "https://images.unsplash.com/photo-1579548122080-c35fd6820ecb?auto=format&fit=crop&w=1200&q=80",
+    galleryImages: Array.isArray(row.gallery_images) ? row.gallery_images.filter(Boolean) : [],
     price: Number(row.price),
     quantity: Math.max(0, Number(row.quantity ?? 0)),
     maxQuantity: Math.max(1, Number(row.max_quantity ?? row.quantity ?? 10)),
+    setType: row.set_type ?? "",
     createdAt: row.created_at ?? undefined,
     rating: Number(row.rating ?? 4.6),
-    style: (row.style ?? "Modern") as Product["style"],
-    medium: (row.medium ?? "Oil on Canvas") as Product["medium"],
-    size: (row.size ?? "Medium") as Product["size"],
+    style: row.style ?? "",
+    medium: row.medium ?? "",
+    frame: row.frame ?? "",
+    size: row.size ?? "",
     dimensions: row.dimensions ?? '30" x 40"',
-    artist: row.artist ?? "Geesun Studio",
+    artist: row.artist ?? "Geesun Crafts",
     featured: Boolean(row.featured),
     bestseller: Boolean(row.bestseller),
   };
@@ -63,7 +71,7 @@ export async function fetchProducts() {
   const { data, error } = await supabase
     .from("products")
     .select(
-      "id, slug, title, description, image, price, quantity, max_quantity, created_at, style, medium, size, dimensions, artist, featured, bestseller",
+      "id, slug, title, article_code, description, image, gallery_images, price, quantity, max_quantity, set_type, created_at, style, medium, frame, size, dimensions, artist, featured, bestseller",
     )
     .order("created_at", { ascending: false });
 
@@ -87,7 +95,7 @@ export async function fetchProductBySlug(slug: string) {
   const { data, error } = await supabase
     .from("products")
     .select(
-      "id, slug, title, description, image, price, quantity, max_quantity, created_at, style, medium, size, dimensions, artist, featured, bestseller",
+      "id, slug, title, article_code, description, image, gallery_images, price, quantity, max_quantity, set_type, created_at, style, medium, frame, size, dimensions, artist, featured, bestseller",
     )
     .eq("slug", slug)
     .maybeSingle();
