@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { CartItem, Product } from "@/lib/types";
+import type { AppliedCoupon, CartItem, Product } from "@/lib/types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type WishlistEntry = {
@@ -22,6 +22,8 @@ type WishlistEntry = {
 type StoreContextValue = {
   cart: CartItem[];
   wishlist: WishlistEntry[];
+  appliedCoupon: AppliedCoupon | null;
+  couponMessage: { tone: "success" | "warning"; text: string } | null;
   userEmail: string | null;
   cartCount: number;
   wishlistCount: number;
@@ -32,6 +34,9 @@ type StoreContextValue = {
   removeFromWishlist: (productId: string) => void;
   moveWishlistToCart: (productId: string) => void;
   isWishlisted: (productId: string) => boolean;
+  applyCouponCode: (code: string, options?: { silent?: boolean }) => Promise<boolean>;
+  removeAppliedCoupon: (options?: { silent?: boolean; reason?: string }) => Promise<void>;
+  clearCouponMessage: () => void;
   clearCart: () => void;
   refreshWishlist: () => Promise<void>;
 };
@@ -71,6 +76,28 @@ type CartApiItem = {
   product: Product | null;
 };
 
+type CartApiResponse = {
+  items?: CartApiItem[];
+  applied_coupon_code?: string | null;
+};
+
+type CouponApplyApiResponse = {
+  success?: boolean;
+  discountAmount?: number;
+  shipping?: number;
+  subtotal?: number;
+  total?: number;
+  coupon?: {
+    code?: string;
+    discountType?: string;
+    discountValue?: number;
+    freeShipping?: boolean;
+  };
+  message?: string;
+  error?: string;
+  remainingAmount?: number;
+};
+
 type RefreshOptions = {
   force?: boolean;
 };
@@ -82,6 +109,7 @@ const StoreContext = createContext<StoreContextValue | null>(null);
 const GUEST_CART_KEY = "geesun_cart";
 const GUEST_WISHLIST_IDS_KEY = "geesun_guest_wishlist_ids";
 const LEGACY_WISHLIST_KEY = "geesun_wishlist";
+const GUEST_APPLIED_COUPON_KEY = "geesun_applied_coupon";
 
 function getSafeStock(product: Product) {
   return Number.isFinite(product.quantity) ? Math.max(0, product.quantity) : 0;
@@ -90,6 +118,11 @@ function getSafeStock(product: Product) {
 function getStockLimitMessage(remaining: number) {
   if (remaining > 0) return `Only ${remaining} items available`;
   return "Maximum available stock reached";
+}
+
+function formatRupeeShort(value: number) {
+  const amount = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+  return `₹${amount.toLocaleString("en-IN")}`;
 }
 
 function readGuestCartItems() {
@@ -190,6 +223,39 @@ function clearGuestWishlistIds() {
   localStorage.removeItem(GUEST_WISHLIST_IDS_KEY);
 }
 
+function readGuestAppliedCoupon() {
+  if (typeof window === "undefined") return null as AppliedCoupon | null;
+  try {
+    const saved = localStorage.getItem(GUEST_APPLIED_COUPON_KEY);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved) as Partial<AppliedCoupon>;
+    const code = String(parsed.code ?? "").trim().toUpperCase();
+    if (!code) return null;
+
+    return {
+      code,
+      discountAmount: Number(parsed.discountAmount ?? 0),
+      discountType: String(parsed.discountType ?? ""),
+      discountValue: Number(parsed.discountValue ?? 0),
+      shipping: Number(parsed.shipping ?? 0),
+      subtotal: Number(parsed.subtotal ?? 0),
+      total: Number(parsed.total ?? 0),
+      freeShipping: Boolean(parsed.freeShipping),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeGuestAppliedCoupon(coupon: AppliedCoupon | null) {
+  if (typeof window === "undefined") return;
+  if (!coupon) {
+    localStorage.removeItem(GUEST_APPLIED_COUPON_KEY);
+    return;
+  }
+  localStorage.setItem(GUEST_APPLIED_COUPON_KEY, JSON.stringify(coupon));
+}
+
 function normalizeWishlistItems(items: WishlistApiItem[]) {
   return items.map((item) => ({
     productId: String(item.product_id),
@@ -218,6 +284,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [wishlistIds, setWishlistIds] = useState<string[]>([]);
   const [wishlist, setWishlist] = useState<WishlistEntry[]>([]);
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
+  const [couponMessage, setCouponMessage] = useState<{ tone: "success" | "warning"; text: string } | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [guestStateHydrated, setGuestStateHydrated] = useState(false);
   const cartRefreshInFlightRef = useRef<Promise<void> | null>(null);
@@ -230,6 +298,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       writeGuestCartItems(cart);
     }
   }, [cart, guestStateHydrated, userEmail]);
+
+  useEffect(() => {
+    if (!userEmail && guestStateHydrated) {
+      writeGuestAppliedCoupon(appliedCoupon);
+    }
+  }, [appliedCoupon, guestStateHydrated, userEmail]);
 
   useEffect(() => {
     localStorage.removeItem(LEGACY_WISHLIST_KEY);
@@ -269,9 +343,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const guestCart = readGuestCartItems();
     const guestIds = readGuestWishlistIds();
+    const guestCoupon = readGuestAppliedCoupon();
 
     setCart(guestCart);
     setWishlistIds(guestIds);
+    setAppliedCoupon(guestCoupon);
     void fetchGuestWishlistProducts(guestIds);
     setGuestStateHydrated(true);
   }, [fetchGuestWishlistProducts]);
@@ -280,6 +356,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const token = await getAccessToken();
     if (!token) {
       setCart(readGuestCartItems());
+      setAppliedCoupon(readGuestAppliedCoupon());
       return;
     }
 
@@ -293,8 +370,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     if (!response.ok) throw new Error("Failed to fetch cart");
 
-    const payload = await response.json();
+    const payload = (await response.json()) as CartApiResponse;
     setCart(normalizeCartItems((payload.items ?? []) as CartApiItem[]));
+    const couponCode = String(payload.applied_coupon_code ?? "").trim().toUpperCase();
+    setAppliedCoupon((current) => {
+      if (!couponCode) return null;
+      if (current?.code === couponCode) return current;
+      return {
+        code: couponCode,
+        discountAmount: 0,
+        discountType: "",
+        discountValue: 0,
+        shipping: 0,
+        subtotal: 0,
+        total: 0,
+      };
+    });
   }, [getAccessToken]);
 
   const fetchServerWishlist = useCallback(async () => {
@@ -321,6 +412,136 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setWishlistIds(items.map((item) => item.productId));
   }, [fetchGuestWishlistProducts, getAccessToken]);
 
+  const persistCouponOnServer = useCallback(
+    async (couponCode: string | null) => {
+      const token = await getAccessToken();
+      if (!token) return;
+
+      if (!couponCode) {
+        await fetch("/api/cart/coupon", {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }).catch(() => null);
+        return;
+      }
+
+      await fetch("/api/cart/coupon", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          couponCode,
+        }),
+      }).catch(() => null);
+    },
+    [getAccessToken],
+  );
+
+  const removeAppliedCoupon = useCallback(
+    async (options?: { silent?: boolean; reason?: string }) => {
+      setAppliedCoupon(null);
+      if (!options?.silent) {
+        setCouponMessage({
+          tone: options?.reason ? "warning" : "success",
+          text: options?.reason ?? "Coupon removed.",
+        });
+      }
+
+      if (userEmail) {
+        await persistCouponOnServer(null);
+      } else {
+        writeGuestAppliedCoupon(null);
+      }
+    },
+    [persistCouponOnServer, userEmail],
+  );
+
+  const applyCouponCode = useCallback(
+    async (code: string, options?: { silent?: boolean }) => {
+      const normalizedCode = String(code).trim().toUpperCase();
+      if (!normalizedCode) {
+        if (!options?.silent) {
+          setCouponMessage({ tone: "warning", text: "Please enter a coupon code." });
+        }
+        return false;
+      }
+
+      const cartItems = cart.map((item) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+        price: item.product.price,
+      }));
+      const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      if (!cartItems.length) {
+        if (!options?.silent) {
+          setCouponMessage({ tone: "warning", text: "Your cart is empty." });
+        }
+        return false;
+      }
+
+      const response = await fetch("/api/cart/apply-coupon", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          couponCode: normalizedCode,
+          cartItems,
+          subtotal,
+        }),
+      }).catch(() => null);
+
+      if (!response) {
+        if (!options?.silent) {
+          setCouponMessage({ tone: "warning", text: "Could not apply coupon right now." });
+        }
+        return false;
+      }
+
+      const payload = (await response.json().catch(() => ({}))) as CouponApplyApiResponse;
+      if (!response.ok || !payload.success || !payload.coupon?.code) {
+        if (!options?.silent) {
+          setCouponMessage({
+            tone: "warning",
+            text: payload.error ?? "Coupon is not valid for this cart.",
+          });
+        }
+        return false;
+      }
+
+      const nextCoupon: AppliedCoupon = {
+        code: String(payload.coupon.code).toUpperCase(),
+        discountAmount: Number(payload.discountAmount ?? 0),
+        discountType: String(payload.coupon.discountType ?? ""),
+        discountValue: Number(payload.coupon.discountValue ?? 0),
+        shipping: Number(payload.shipping ?? 0),
+        subtotal: Number(payload.subtotal ?? subtotal),
+        total: Number(payload.total ?? 0),
+        freeShipping: Boolean(payload.coupon.freeShipping),
+      };
+      setAppliedCoupon(nextCoupon);
+      if (!options?.silent) {
+        setCouponMessage({
+          tone: "success",
+          text: String(payload.message ?? `Coupon ${nextCoupon.code} applied successfully`),
+        });
+      }
+
+      if (userEmail) {
+        await persistCouponOnServer(nextCoupon.code);
+      } else {
+        writeGuestAppliedCoupon(nextCoupon);
+      }
+
+      return true;
+    },
+    [cart, persistCouponOnServer, userEmail],
+  );
+
   const mergeGuestCartIntoServer = useCallback(async () => {
     const token = await getAccessToken();
     if (!token) return;
@@ -343,6 +564,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           quantity: item.quantity,
         }),
       }).catch(() => null);
+    }
+
+    const guestCoupon = readGuestAppliedCoupon();
+    if (guestCoupon?.code) {
+      await fetch("/api/cart/coupon", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ couponCode: guestCoupon.code }),
+      }).catch(() => null);
+      writeGuestAppliedCoupon(null);
     }
 
     clearGuestCartItems();
@@ -412,6 +646,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           lastCartRefreshAtRef.current = Date.now();
         } catch {
           setCart(readGuestCartItems());
+          setAppliedCoupon(readGuestAppliedCoupon());
           lastCartRefreshAtRef.current = Date.now();
         } finally {
           cartRefreshInFlightRef.current = null;
@@ -463,6 +698,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const guestIds = readGuestWishlistIds();
         setWishlistIds(guestIds);
         setCart(readGuestCartItems());
+        setAppliedCoupon(readGuestAppliedCoupon());
         void fetchGuestWishlistProducts(guestIds);
       }
     });
@@ -492,10 +728,88 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [refreshCart, refreshWishlist]);
 
+  useEffect(() => {
+    if (!guestStateHydrated) return;
+    if (!appliedCoupon?.code) return;
+
+    let cancelled = false;
+    const revalidateAppliedCoupon = async () => {
+      const cartItems = cart.map((item) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+        price: item.product.price,
+      }));
+      const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+      if (!cartItems.length) {
+        await removeAppliedCoupon({ silent: true });
+        return;
+      }
+
+      const response = await fetch("/api/cart/apply-coupon", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          couponCode: appliedCoupon.code,
+          cartItems,
+          subtotal,
+        }),
+      }).catch(() => null);
+
+      if (!response) return;
+
+      const payload = (await response.json().catch(() => ({}))) as CouponApplyApiResponse;
+      if (!response.ok || !payload.success || !payload.coupon?.code) {
+        const remaining = Number(payload.remainingAmount ?? 0);
+        const minimumAmount = subtotal + Math.max(0, remaining);
+        const reason =
+          remaining > 0
+            ? `${appliedCoupon.code} removed because your order no longer meets the ${formatRupeeShort(minimumAmount)} minimum requirement.`
+            : `${appliedCoupon.code} was removed because it is no longer valid for your cart.`;
+
+        if (!cancelled) {
+          setCouponMessage({ tone: "warning", text: reason });
+          await removeAppliedCoupon({ silent: true });
+        }
+        return;
+      }
+
+      const refreshedCoupon: AppliedCoupon = {
+        code: String(payload.coupon.code).toUpperCase(),
+        discountAmount: Number(payload.discountAmount ?? 0),
+        discountType: String(payload.coupon.discountType ?? ""),
+        discountValue: Number(payload.coupon.discountValue ?? 0),
+        shipping: Number(payload.shipping ?? 0),
+        subtotal: Number(payload.subtotal ?? subtotal),
+        total: Number(payload.total ?? 0),
+        freeShipping: Boolean(payload.coupon.freeShipping),
+      };
+
+      if (!cancelled) {
+        setAppliedCoupon(refreshedCoupon);
+        if (userEmail) {
+          await persistCouponOnServer(refreshedCoupon.code);
+        } else {
+          writeGuestAppliedCoupon(refreshedCoupon);
+        }
+      }
+    };
+
+    void revalidateAppliedCoupon();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appliedCoupon?.code, cart, guestStateHydrated, persistCouponOnServer, removeAppliedCoupon, userEmail]);
+
   const value = useMemo<StoreContextValue>(
     () => ({
       cart,
       wishlist,
+      appliedCoupon,
+      couponMessage,
       userEmail,
       cartCount: cart.reduce((count, item) => count + item.quantity, 0),
       wishlistCount: wishlistIds.length,
@@ -893,8 +1207,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       },
       isWishlisted: (productId) => wishlistIds.includes(productId),
+      applyCouponCode,
+      removeAppliedCoupon,
+      clearCouponMessage: () => setCouponMessage(null),
       clearCart: () => {
         setCart([]);
+        setAppliedCoupon(null);
+        setCouponMessage(null);
 
         if (userEmail) {
           void (async () => {
@@ -908,16 +1227,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               },
             }).catch(() => null);
 
+            await fetch("/api/cart/coupon", {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }).catch(() => null);
+
             await refreshCart();
           })();
           return;
         }
 
         clearGuestCartItems();
+        writeGuestAppliedCoupon(null);
       },
       refreshWishlist,
     }),
-    [cart, getAccessToken, refreshCart, refreshWishlist, userEmail, wishlist, wishlistIds],
+    [
+      appliedCoupon,
+      applyCouponCode,
+      cart,
+      couponMessage,
+      getAccessToken,
+      refreshCart,
+      refreshWishlist,
+      removeAppliedCoupon,
+      userEmail,
+      wishlist,
+      wishlistIds,
+    ],
   );
 
   return (

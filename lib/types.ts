@@ -33,6 +33,17 @@ export type CartItem = {
   quantity: number;
 };
 
+export type AppliedCoupon = {
+  code: string;
+  discountAmount: number;
+  discountType: string;
+  discountValue: number;
+  shipping: number;
+  subtotal: number;
+  total: number;
+  freeShipping?: boolean;
+};
+
 export type Testimonial = {
   id: string;
   name: string;

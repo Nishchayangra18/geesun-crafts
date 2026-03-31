@@ -86,6 +86,20 @@ async function ensureCartIdForUser(userId: string) {
   return { supabase, cartId: String(createdCart.id) };
 }
 
+async function getAppliedCouponCode(
+  supabase: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
+  cartId: string,
+) {
+  const { data, error } = await supabase
+    .from("carts")
+    .select("applied_coupon_code")
+    .eq("id", cartId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return String((data as { applied_coupon_code?: string | null } | null)?.applied_coupon_code ?? "").trim() || null;
+}
+
 async function buildCartPayload(supabase: NonNullable<ReturnType<typeof getSupabaseAdminClient>>, cartId: string) {
   const { data: cartRows, error: cartRowsError } = await supabase
     .from("cart_items")
@@ -135,7 +149,8 @@ export async function GET(request: Request) {
     }
 
     const items = await buildCartPayload(supabase, cartId);
-    return NextResponse.json({ ok: true, cart_id: cartId, items });
+    const appliedCouponCode = await getAppliedCouponCode(supabase, cartId);
+    return NextResponse.json({ ok: true, cart_id: cartId, items, applied_coupon_code: appliedCouponCode });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load cart";
     return NextResponse.json({ error: message }, { status: 500 });

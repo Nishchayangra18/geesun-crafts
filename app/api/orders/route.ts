@@ -1,11 +1,28 @@
 import { NextResponse } from "next/server";
 import { triggerEvent } from "@/lib/events/trigger-event";
+import {
+  calculateDiscountAmount,
+  calculateSummaryTotals,
+  evaluateCoupon,
+  getFreeShippingThreshold,
+  normalizeCouponCode,
+  type CouponRow,
+} from "@/lib/cart/pricing";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
 import { getAuthenticatedUserFromRequest } from "@/lib/supabase/auth";
 
 type RequestItem = {
   product_id: string;
   quantity: number;
+};
+
+type ProductMetaRow = {
+  id: string;
+  category: string | null;
+  style: string | null;
+  medium: string | null;
+  price: number | null;
+  is_active: boolean | null;
 };
 
 export async function POST(request: Request) {
@@ -24,7 +41,7 @@ export async function POST(request: Request) {
     const items = (body.items ?? []) as RequestItem[];
     const userId = authUser.id;
     const status = "pending";
-    const shippingAmount = Math.max(0, Number(body.shipping_amount ?? 0));
+    const couponCode = normalizeCouponCode(String(body.coupon_code ?? ""));
 
     if (!Array.isArray(items) || !items.length) {
       return NextResponse.json({ error: "Order items are required." }, { status: 400 });
@@ -110,7 +127,79 @@ export async function POST(request: Request) {
       (sum, item) => sum + item.price * item.quantity,
       0,
     );
-    const totalAmount = subTotalAmount + shippingAmount;
+
+    let discountAmount = 0;
+    let shippingAmount = 0;
+    let validatedCouponCode: string | null = null;
+
+    const freeShippingThreshold = await getFreeShippingThreshold(supabase);
+
+    if (couponCode) {
+      const { data: couponData, error: couponError } = await supabase
+        .from("coupons")
+        .select(
+          "id, code, title, description, discount_type, discount_value, minimum_order_amount, maximum_discount, free_shipping, is_active, usage_limit, used_count, start_date, end_date, applicable_categories, applicable_product_ids",
+        )
+        .ilike("code", couponCode)
+        .maybeSingle();
+      if (couponError) throw couponError;
+      if (!couponData) {
+        await supabase.rpc("restore_stock", { p_items: normalizedItems });
+        deductedItems = [];
+        return NextResponse.json({ error: "Applied coupon no longer exists." }, { status: 409 });
+      }
+
+      const { data: productMetaRows, error: productMetaError } = await supabase
+        .from("products")
+        .select("id, category, style, medium, price, is_active")
+        .in("id", normalizedItems.map((item) => item.product_id));
+      if (productMetaError) throw productMetaError;
+
+      const couponProducts = ((productMetaRows ?? []) as ProductMetaRow[]).map((row) => ({
+        id: row.id,
+        category: row.category,
+        style: row.style,
+        medium: row.medium,
+        price: Number(row.price ?? 0),
+        isActive: row.is_active !== false,
+      }));
+      const evaluation = evaluateCoupon(couponData as CouponRow, {
+        subtotal: subTotalAmount,
+        cartProducts: couponProducts,
+      });
+      if (!evaluation.eligible) {
+        await supabase.rpc("restore_stock", { p_items: normalizedItems });
+        deductedItems = [];
+        return NextResponse.json(
+          {
+            error:
+              evaluation.reason ??
+              "Applied coupon is no longer valid for your cart. Please review your cart and try again.",
+          },
+          { status: 409 },
+        );
+      }
+
+      validatedCouponCode = String((couponData as CouponRow).code).toUpperCase();
+      discountAmount = calculateDiscountAmount(couponData as CouponRow, subTotalAmount);
+      const summaryWithCoupon = calculateSummaryTotals({
+        subtotal: subTotalAmount,
+        discountAmount,
+        freeShippingThreshold,
+        freeShippingCoupon: Boolean((couponData as CouponRow).free_shipping),
+      });
+      shippingAmount = summaryWithCoupon.shipping;
+    } else {
+      const summaryWithoutCoupon = calculateSummaryTotals({
+        subtotal: subTotalAmount,
+        discountAmount: 0,
+        freeShippingThreshold,
+        freeShippingCoupon: false,
+      });
+      shippingAmount = summaryWithoutCoupon.shipping;
+    }
+
+    const totalAmount = subTotalAmount - discountAmount + shippingAmount;
 
     let orderId = crypto.randomUUID();
 
@@ -121,6 +210,9 @@ export async function POST(request: Request) {
         items: serverPricedItems,
         total_amount: totalAmount,
         status,
+        coupon_code: validatedCouponCode,
+        discount_amount: discountAmount,
+        shipping_amount: shippingAmount,
         shipping_address: body.shipping_address ?? {},
         created_at: new Date().toISOString(),
       })
@@ -152,9 +244,11 @@ export async function POST(request: Request) {
         orderId,
         pricing: {
           sub_total: subTotalAmount,
+          discount: discountAmount,
           shipping: shippingAmount,
           total: totalAmount,
         },
+        coupon: validatedCouponCode ? { code: validatedCouponCode } : null,
       },
       { status: 201 },
     );

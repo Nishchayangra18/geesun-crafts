@@ -16,6 +16,7 @@ create table if not exists users (
 create table if not exists carts (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid not null references auth.users(id) on delete cascade,
+  applied_coupon_code text,
   created_at timestamptz default now(),
   unique(user_id)
 );
@@ -32,16 +33,47 @@ create table if not exists products (
   quantity integer not null default 0 check (quantity >= 0),
   max_quantity integer not null default 10 check (max_quantity > 0),
   set_type text,
+  category text,
   style text,
   medium text,
   frame text,
   size text,
   dimensions text,
   artist text,
+  is_active boolean not null default true,
   featured boolean default false,
   bestseller boolean default false,
   created_at timestamptz default now()
 );
+
+create table if not exists coupons (
+  id uuid primary key default uuid_generate_v4(),
+  code text unique not null,
+  title text,
+  description text,
+  discount_type text not null check (discount_type in ('percentage', 'fixed')),
+  discount_value numeric not null default 0,
+  minimum_order_amount numeric not null default 0,
+  maximum_discount numeric,
+  free_shipping boolean not null default false,
+  is_active boolean not null default true,
+  usage_limit integer,
+  used_count integer not null default 0,
+  start_date timestamptz,
+  end_date timestamptz,
+  applicable_categories text[],
+  applicable_product_ids uuid[],
+  created_at timestamptz not null default now()
+);
+
+create table if not exists store_settings (
+  key text primary key,
+  value text not null
+);
+
+insert into store_settings(key, value)
+values ('free_shipping_threshold', '2000')
+on conflict (key) do nothing;
 
 create table if not exists cart_items (
   id uuid primary key default uuid_generate_v4(),
@@ -57,6 +89,9 @@ create table if not exists orders (
   user_id uuid references users(id) on delete set null,
   items jsonb not null default '[]'::jsonb,
   total_amount numeric not null,
+  coupon_code text,
+  discount_amount numeric not null default 0,
+  shipping_amount numeric not null default 0,
   status text not null default 'pending',
   shipping_address jsonb default '{}'::jsonb,
   created_at timestamptz default now()

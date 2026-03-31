@@ -274,15 +274,17 @@ export function ProductCard({ product }: { product: Product }) {
         <Link
           ref={imageWrapRef}
           href={`/shop/${product.slug}`}
-          className="relative block aspect-[4/3] overflow-hidden"
+          className="relative block h-56 overflow-hidden bg-[rgb(244_241_235)] sm:h-60"
         >
-          <Image
-            src={product.image}
-            alt={product.title}
-            fill
-            className="object-cover transition duration-500 hover:scale-105"
-            sizes="(max-width: 768px) 100vw, 33vw"
-          />
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden p-4 sm:p-5">
+            <Image
+              src={product.image}
+              alt={product.title}
+              fill
+              className="h-full w-full max-h-full max-w-full object-contain object-center transition-transform duration-300 ease-out"
+              sizes="(max-width: 768px) 100vw, 33vw"
+            />
+          </div>
         </Link>
         <div className="space-y-3 p-4">
           {feedback ? (
