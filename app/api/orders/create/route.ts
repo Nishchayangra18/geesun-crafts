@@ -8,6 +8,7 @@ import {
   normalizeCouponCode,
   type CouponRow,
 } from "@/lib/cart/pricing";
+import { normalizeShippingAddress } from "@/lib/checkout/state";
 import { getSupabaseAdminClient } from "@/lib/supabase/server";
 import { getAuthenticatedUserFromRequest } from "@/lib/supabase/auth";
 
@@ -24,6 +25,9 @@ type ProductMetaRow = {
   price: number | null;
   is_active: boolean | null;
 };
+
+type PaymentMethod = "card" | "upi" | "cod";
+type PaymentStatus = "pending" | "mock_paid" | "cod_pending" | "failed";
 
 function mapStockRpcError(message: string) {
   const normalized = message.toLowerCase();
@@ -51,8 +55,17 @@ export async function POST(request: Request) {
     const body = await request.json();
     const items = (body.items ?? []) as RequestItem[];
     const userId = authUser.id;
-    const status = "pending";
-    const couponCode = normalizeCouponCode(String(body.coupon_code ?? ""));
+    const couponCode = normalizeCouponCode(String(body.couponCode ?? body.coupon_code ?? ""));
+    const shippingAddress = normalizeShippingAddress(body.shippingAddress ?? body.shipping_address ?? {});
+
+    const paymentMethod = String(body.paymentMethod ?? "").toLowerCase() as PaymentMethod;
+    if (paymentMethod !== "card" && paymentMethod !== "upi" && paymentMethod !== "cod") {
+      return NextResponse.json({ error: "A valid payment method is required." }, { status: 400 });
+    }
+
+    const derivedPaymentStatus: PaymentStatus = paymentMethod === "cod" ? "pending" : "mock_paid";
+    const requestedPaymentStatus = String(body.paymentStatus ?? "").trim().toLowerCase();
+    const paymentStatus = requestedPaymentStatus === derivedPaymentStatus ? derivedPaymentStatus : derivedPaymentStatus;
 
     if (!Array.isArray(items) || !items.length) {
       return NextResponse.json({ error: "Order items are required." }, { status: 400 });
@@ -219,12 +232,15 @@ export async function POST(request: Request) {
       .insert({
         user_id: userId,
         items: serverPricedItems,
+        subtotal_amount: subTotalAmount,
         total_amount: totalAmount,
-        status,
         coupon_code: validatedCouponCode,
         discount_amount: discountAmount,
         shipping_amount: shippingAmount,
-        shipping_address: body.shipping_address ?? {},
+        payment_method: paymentMethod,
+        payment_status: paymentStatus,
+        status: "pending",
+        shipping_address: shippingAddress,
         created_at: new Date().toISOString(),
       })
       .select("id")
@@ -247,14 +263,18 @@ export async function POST(request: Request) {
       user_id: userId,
       total_amount: totalAmount,
       item_count: serverPricedItems.length,
+      payment_method: paymentMethod,
+      payment_status: paymentStatus,
     });
 
     return NextResponse.json(
       {
         ok: true,
         orderId,
+        paymentMethod,
+        paymentStatus,
         pricing: {
-          sub_total: subTotalAmount,
+          subtotal: subTotalAmount,
           discount: discountAmount,
           shipping: shippingAmount,
           total: totalAmount,

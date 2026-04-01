@@ -88,10 +88,13 @@ create table if not exists orders (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid references users(id) on delete set null,
   items jsonb not null default '[]'::jsonb,
+  subtotal_amount numeric not null default 0,
   total_amount numeric not null,
   coupon_code text,
   discount_amount numeric not null default 0,
   shipping_amount numeric not null default 0,
+  payment_method text,
+  payment_status text not null default 'pending' check (payment_status in ('pending', 'mock_paid', 'cod_pending', 'failed')),
   status text not null default 'pending',
   shipping_address jsonb default '{}'::jsonb,
   created_at timestamptz default now()
@@ -155,18 +158,18 @@ begin
 
   with request_items as (
     select
-      (value->>'product_id')::uuid as product_id,
-      (value->>'quantity')::integer as quantity
+      (value->>'product_id')::uuid as request_product_id,
+      (value->>'quantity')::integer as request_quantity
     from jsonb_array_elements(p_items)
   ),
   grouped_items as (
-    select product_id, sum(quantity)::integer as quantity
-    from request_items
-    group by product_id
+    select ri.request_product_id, sum(ri.request_quantity)::integer as request_quantity
+    from request_items ri
+    group by ri.request_product_id
   )
   select count(*) into missing_count
   from grouped_items gi
-  left join products p on p.id = gi.product_id
+  left join products p on p.id = gi.request_product_id
   where p.id is null;
 
   if missing_count > 0 then
@@ -176,11 +179,11 @@ begin
   if exists (
     with request_items as (
       select
-        (value->>'product_id')::uuid as product_id,
-        (value->>'quantity')::integer as quantity
+        (value->>'product_id')::uuid as request_product_id,
+        (value->>'quantity')::integer as request_quantity
       from jsonb_array_elements(p_items)
     )
-    select 1 from request_items where quantity is null or quantity <= 0
+    select 1 from request_items ri where ri.request_quantity is null or ri.request_quantity <= 0
   ) then
     raise exception 'Each item quantity must be a positive integer';
   end if;
@@ -188,19 +191,19 @@ begin
   if exists (
     with request_items as (
       select
-        (value->>'product_id')::uuid as product_id,
-        (value->>'quantity')::integer as quantity
+        (value->>'product_id')::uuid as request_product_id,
+        (value->>'quantity')::integer as request_quantity
       from jsonb_array_elements(p_items)
     ),
     grouped_items as (
-      select product_id, sum(quantity)::integer as quantity
-      from request_items
-      group by product_id
+      select ri.request_product_id, sum(ri.request_quantity)::integer as request_quantity
+      from request_items ri
+      group by ri.request_product_id
     )
     select 1
     from grouped_items gi
-    join products p on p.id = gi.product_id
-    where p.quantity < gi.quantity
+    join products p on p.id = gi.request_product_id
+    where p.quantity < gi.request_quantity
   ) then
     raise exception 'Insufficient stock for one or more products';
   end if;
@@ -208,24 +211,32 @@ begin
   return query
   with request_items as (
     select
-      (value->>'product_id')::uuid as product_id,
-      (value->>'quantity')::integer as quantity
+      (value->>'product_id')::uuid as request_product_id,
+      (value->>'quantity')::integer as request_quantity
     from jsonb_array_elements(p_items)
   ),
   grouped_items as (
-    select product_id, sum(quantity)::integer as quantity
-    from request_items
-    group by product_id
+    select ri.request_product_id, sum(ri.request_quantity)::integer as request_quantity
+    from request_items ri
+    group by ri.request_product_id
   ),
   updated as (
     update products p
-    set quantity = p.quantity - gi.quantity
+    set quantity = p.quantity - gi.request_quantity
     from grouped_items gi
-    where p.id = gi.product_id
-    returning p.id, gi.quantity, p.price, p.quantity
+    where p.id = gi.request_product_id
+    returning
+      p.id as updated_product_id,
+      gi.request_quantity as requested_quantity,
+      p.price as updated_unit_price,
+      p.quantity as updated_remaining_quantity
   )
-  select id, quantity, price, quantity
-  from updated;
+  select
+    u.updated_product_id as product_id,
+    u.requested_quantity as quantity,
+    u.updated_unit_price as unit_price,
+    u.updated_remaining_quantity as remaining_quantity
+  from updated u;
 end;
 $$;
 
@@ -240,19 +251,19 @@ begin
 
   with request_items as (
     select
-      (value->>'product_id')::uuid as product_id,
-      (value->>'quantity')::integer as quantity
+      (value->>'product_id')::uuid as request_product_id,
+      (value->>'quantity')::integer as request_quantity
     from jsonb_array_elements(p_items)
   ),
   grouped_items as (
-    select product_id, sum(quantity)::integer as quantity
-    from request_items
-    where quantity is not null and quantity > 0
-    group by product_id
+    select ri.request_product_id, sum(ri.request_quantity)::integer as request_quantity
+    from request_items ri
+    where ri.request_quantity is not null and ri.request_quantity > 0
+    group by ri.request_product_id
   )
   update products p
-  set quantity = p.quantity + gi.quantity
+  set quantity = p.quantity + gi.request_quantity
   from grouped_items gi
-  where p.id = gi.product_id;
+  where p.id = gi.request_product_id;
 end;
 $$;

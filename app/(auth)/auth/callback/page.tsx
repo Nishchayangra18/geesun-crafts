@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { fetchAuthenticatedUserProfile, syncAuthenticatedUser } from "@/lib/supabase/sync-user";
+import { REDIRECT_AFTER_LOGIN_STORAGE_KEY } from "@/lib/checkout/state";
 
 function hasCompletedPreferences(preferences: unknown) {
   if (!preferences || typeof preferences !== "object") return false;
@@ -59,7 +60,13 @@ export default function AuthCallbackPage() {
           }
 
           setMessage("Login successful. Redirecting...");
-          router.replace("/");
+          const redirectAfterLogin = localStorage.getItem(REDIRECT_AFTER_LOGIN_STORAGE_KEY);
+          if (redirectAfterLogin) {
+            localStorage.removeItem(REDIRECT_AFTER_LOGIN_STORAGE_KEY);
+            router.replace(redirectAfterLogin);
+          } else {
+            router.replace("/");
+          }
         }
       } catch (error) {
         if (!active) return;

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { syncAuthenticatedUser } from "@/lib/supabase/sync-user";
 import { PASSWORD_MIN_LENGTH, validateRegistrationPassword } from "@/lib/security/password-policy";
+import { REDIRECT_AFTER_LOGIN_STORAGE_KEY } from "@/lib/checkout/state";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -128,7 +129,13 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         if (error) throw error;
         await syncAuthenticatedUser(data.session.access_token);
         setMessage("Login successful.");
-        router.push("/");
+        const redirectAfterLogin = localStorage.getItem(REDIRECT_AFTER_LOGIN_STORAGE_KEY);
+        if (redirectAfterLogin) {
+          localStorage.removeItem(REDIRECT_AFTER_LOGIN_STORAGE_KEY);
+          router.push(redirectAfterLogin);
+        } else {
+          router.push("/");
+        }
       }
     } catch (error) {
       const text = error instanceof Error ? error.message : "Authentication failed";

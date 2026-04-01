@@ -4,47 +4,34 @@ import { motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/components/providers/store-provider";
+import {
+  CHECKOUT_SHIPPING_ATTEMPTED_STORAGE_KEY,
+  CHECKOUT_SHIPPING_STORAGE_KEY,
+  CHECKOUT_SHIPPING_TOUCHED_STORAGE_KEY,
+  EMPTY_SHIPPING_ADDRESS,
+  LEGACY_CHECKOUT_SHIPPING_STORAGE_KEY,
+  normalizeShippingAddress,
+  type ShippingAddress,
+} from "@/lib/checkout/state";
 
-type ShippingForm = {
-  name: string;
-  phone: string;
-  email: string;
-  street: string;
-  city: string;
-  pincode: string;
-};
-
-type FieldKey = keyof ShippingForm;
+type FieldKey = keyof ShippingAddress;
 type FieldErrors = Partial<Record<FieldKey, string>>;
 type TouchedState = Record<FieldKey, boolean>;
 
-const SHIPPING_FORM_STORAGE_KEY = "geesun_checkout_shipping_form_v1";
-const SHIPPING_TOUCHED_STORAGE_KEY = "geesun_checkout_shipping_touched_v1";
-const SHIPPING_ATTEMPTED_STORAGE_KEY = "geesun_checkout_shipping_attempted_v1";
-
-const EMPTY_FORM: ShippingForm = {
-  name: "",
-  phone: "",
-  email: "",
-  city: "",
-  street: "",
-  pincode: "",
-};
-
 const EMPTY_TOUCHED: TouchedState = {
-  name: false,
+  fullName: false,
   phone: false,
   email: false,
-  street: false,
+  streetAddress: false,
   city: false,
   pincode: false,
 };
 
-function validateShipping(values: ShippingForm): FieldErrors {
+function validateShipping(values: ShippingAddress): FieldErrors {
   const errors: FieldErrors = {};
 
-  if (!values.name.trim() || values.name.trim().length < 2) {
-    errors.name = "Please enter at least 2 characters.";
+  if (!values.fullName.trim() || values.fullName.trim().length < 2) {
+    errors.fullName = "Please enter at least 2 characters.";
   }
   if (!/^\d{10}$/.test(values.phone.trim())) {
     errors.phone = "Phone must be exactly 10 digits.";
@@ -52,8 +39,8 @@ function validateShipping(values: ShippingForm): FieldErrors {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim())) {
     errors.email = "Please enter a valid email address.";
   }
-  if (!values.street.trim() || values.street.trim().length < 8) {
-    errors.street = "Street address must be at least 8 characters.";
+  if (!values.streetAddress.trim() || values.streetAddress.trim().length < 8) {
+    errors.streetAddress = "Street address must be at least 8 characters.";
   }
   if (!values.city.trim() || values.city.trim().length < 2) {
     errors.city = "City must be at least 2 characters.";
@@ -68,15 +55,16 @@ function validateShipping(values: ShippingForm): FieldErrors {
 export function CheckoutShell() {
   const router = useRouter();
   const { cart } = useStore();
-  const [address, setAddress] = useState<ShippingForm>(EMPTY_FORM);
+  const [address, setAddress] = useState<ShippingAddress>(EMPTY_SHIPPING_ADDRESS);
   const [touched, setTouched] = useState<TouchedState>(EMPTY_TOUCHED);
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
+  const [isHydratedFromStorage, setIsHydratedFromStorage] = useState(false);
   const [shakeNonce, setShakeNonce] = useState(0);
   const fieldRefs = useRef<Record<FieldKey, HTMLDivElement | null>>({
-    name: null,
+    fullName: null,
     phone: null,
     email: null,
-    street: null,
+    streetAddress: null,
     city: null,
     pincode: null,
   });
@@ -85,49 +73,50 @@ export function CheckoutShell() {
   const isFormValid = useMemo(() => Object.keys(errors).length === 0, [errors]);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      try {
-        const savedAddress = localStorage.getItem(SHIPPING_FORM_STORAGE_KEY);
-        const savedTouched = localStorage.getItem(SHIPPING_TOUCHED_STORAGE_KEY);
-        const savedAttempted = localStorage.getItem(SHIPPING_ATTEMPTED_STORAGE_KEY);
+    try {
+      const savedAddress =
+        localStorage.getItem(CHECKOUT_SHIPPING_STORAGE_KEY) ??
+        localStorage.getItem(LEGACY_CHECKOUT_SHIPPING_STORAGE_KEY) ??
+        localStorage.getItem("geesun_checkout_shipping_form_v1");
+      const savedTouched = localStorage.getItem(CHECKOUT_SHIPPING_TOUCHED_STORAGE_KEY);
+      const savedAttempted = localStorage.getItem(CHECKOUT_SHIPPING_ATTEMPTED_STORAGE_KEY);
 
-        if (savedAddress) {
-          const parsed = JSON.parse(savedAddress) as Partial<ShippingForm>;
-          setAddress({
-            name: String(parsed.name ?? ""),
-            phone: String(parsed.phone ?? ""),
-            email: String(parsed.email ?? ""),
-            street: String(parsed.street ?? ""),
-            city: String(parsed.city ?? ""),
-            pincode: String(parsed.pincode ?? ""),
-          });
-        }
-        if (savedTouched) {
-          const parsedTouched = JSON.parse(savedTouched) as Partial<TouchedState>;
-          setTouched({
-            name: Boolean(parsedTouched.name),
-            phone: Boolean(parsedTouched.phone),
-            email: Boolean(parsedTouched.email),
-            street: Boolean(parsedTouched.street),
-            city: Boolean(parsedTouched.city),
-            pincode: Boolean(parsedTouched.pincode),
-          });
-        }
-        if (savedAttempted) {
-          setAttemptedSubmit(savedAttempted === "true");
-        }
-      } catch {
-        // Ignore malformed local state and keep empty form defaults.
+      if (savedAddress) {
+        setAddress(normalizeShippingAddress(JSON.parse(savedAddress)));
       }
-    }, 0);
-    return () => window.clearTimeout(timeout);
+      if (savedTouched) {
+        const parsedTouched = JSON.parse(savedTouched) as Partial<TouchedState> & {
+          name?: boolean;
+          street?: boolean;
+        };
+        setTouched({
+          fullName: Boolean(parsedTouched.fullName ?? parsedTouched.name),
+          phone: Boolean(parsedTouched.phone),
+          email: Boolean(parsedTouched.email),
+          streetAddress: Boolean(parsedTouched.streetAddress ?? parsedTouched.street),
+          city: Boolean(parsedTouched.city),
+          pincode: Boolean(parsedTouched.pincode),
+        });
+      }
+      if (savedAttempted) {
+        setAttemptedSubmit(savedAttempted === "true");
+      }
+    } catch {
+      // Ignore malformed local state and keep empty form defaults.
+    } finally {
+      setIsHydratedFromStorage(true);
+    }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(SHIPPING_FORM_STORAGE_KEY, JSON.stringify(address));
-    localStorage.setItem(SHIPPING_TOUCHED_STORAGE_KEY, JSON.stringify(touched));
-    localStorage.setItem(SHIPPING_ATTEMPTED_STORAGE_KEY, String(attemptedSubmit));
-  }, [address, attemptedSubmit, touched]);
+    if (!isHydratedFromStorage) {
+      return;
+    }
+
+    localStorage.setItem(CHECKOUT_SHIPPING_STORAGE_KEY, JSON.stringify(address));
+    localStorage.setItem(CHECKOUT_SHIPPING_TOUCHED_STORAGE_KEY, JSON.stringify(touched));
+    localStorage.setItem(CHECKOUT_SHIPPING_ATTEMPTED_STORAGE_KEY, String(attemptedSubmit));
+  }, [address, attemptedSubmit, isHydratedFromStorage, touched]);
 
   function handleFieldChange(field: FieldKey, value: string) {
     const nextValue =
@@ -143,20 +132,20 @@ export function CheckoutShell() {
     if (!isFormValid) {
       setAttemptedSubmit(true);
       setTouched({
-        name: true,
+        fullName: true,
         phone: true,
         email: true,
-        street: true,
+        streetAddress: true,
         city: true,
         pincode: true,
       });
       setShakeNonce((value) => value + 1);
 
       const orderedFields: FieldKey[] = [
-        "name",
+        "fullName",
         "phone",
         "email",
-        "street",
+        "streetAddress",
         "city",
         "pincode",
       ];
@@ -169,6 +158,14 @@ export function CheckoutShell() {
       }
       return;
     }
+
+    void fetch("/api/checkout/save-shipping", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ shippingAddress: address }),
+    }).catch(() => null);
 
     router.push("/checkout/payment");
   }
@@ -209,17 +206,17 @@ export function CheckoutShell() {
 
           <div className="mt-7 grid gap-5 md:grid-cols-2">
             <Field
-              fieldKey="name"
+              fieldKey="fullName"
               label="Full Name"
               placeholder="Enter your full name"
-              value={address.name}
-              onChange={(name) => handleFieldChange("name", name)}
-              onBlur={() => setTouched((s) => ({ ...s, name: true }))}
-              error={errors.name}
-              showError={Boolean(touched.name || attemptedSubmit)}
+              value={address.fullName}
+              onChange={(fullName) => handleFieldChange("fullName", fullName)}
+              onBlur={() => setTouched((s) => ({ ...s, fullName: true }))}
+              error={errors.fullName}
+              showError={Boolean(touched.fullName || attemptedSubmit)}
               shakeNonce={shakeNonce}
               refCallback={(node) => {
-                fieldRefs.current.name = node;
+                fieldRefs.current.fullName = node;
               }}
             />
             <Field
@@ -251,17 +248,17 @@ export function CheckoutShell() {
               }}
             />
             <Field
-              fieldKey="street"
+              fieldKey="streetAddress"
               label="Street Address"
               placeholder="Enter your street address"
-              value={address.street}
-              onChange={(street) => handleFieldChange("street", street)}
-              onBlur={() => setTouched((s) => ({ ...s, street: true }))}
-              error={errors.street}
-              showError={Boolean(touched.street || attemptedSubmit)}
+              value={address.streetAddress}
+              onChange={(streetAddress) => handleFieldChange("streetAddress", streetAddress)}
+              onBlur={() => setTouched((s) => ({ ...s, streetAddress: true }))}
+              error={errors.streetAddress}
+              showError={Boolean(touched.streetAddress || attemptedSubmit)}
               shakeNonce={shakeNonce}
               refCallback={(node) => {
-                fieldRefs.current.street = node;
+                fieldRefs.current.streetAddress = node;
               }}
             />
             <Field
@@ -310,12 +307,7 @@ export function CheckoutShell() {
             <button
               type="button"
               onClick={handleContinueToPayment}
-              disabled={!isFormValid}
-              className={`h-14 min-w-[230px] rounded-full px-8 text-lg font-medium text-white transition-all duration-300 ${
-                isFormValid
-                  ? "bg-[#6B7D5E] shadow-[0_12px_26px_rgb(107_125_94_/_30%)] hover:-translate-y-0.5 hover:bg-[#5f7053]"
-                  : "cursor-not-allowed bg-[#91a084] opacity-55"
-              }`}
+              className="h-14 min-w-[230px] rounded-full bg-[#6B7D5E] px-8 text-lg font-medium text-white shadow-[0_12px_26px_rgb(107_125_94_/_30%)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#5f7053]"
             >
               Continue to Payment
             </button>

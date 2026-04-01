@@ -1,31 +1,5 @@
--- Inventory migration for Geesun Crafts
--- Safe for existing data
-
-alter table if exists products
-  add column if not exists quantity integer;
-
-update products
-set quantity = 0
-where quantity is null;
-
-alter table if exists products
-  alter column quantity set default 0;
-
-alter table if exists products
-  alter column quantity set not null;
-
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'products_quantity_non_negative'
-  ) then
-    alter table products
-      add constraint products_quantity_non_negative check (quantity >= 0);
-  end if;
-end
-$$;
+-- Recreate stock RPCs in case older environments missed the inventory migration
+-- and force PostgREST schema cache refresh.
 
 create or replace function validate_and_decrement_stock(p_items jsonb)
 returns table (
@@ -154,3 +128,5 @@ begin
   where p.id = gi.request_product_id;
 end;
 $$;
+
+notify pgrst, 'reload schema';
