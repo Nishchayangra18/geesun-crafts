@@ -33,9 +33,9 @@ export const testimonials: Testimonial[] = [
 
 export const featuredArtist: ArtistProfile = {
   id: "a1",
-  name: "Ishita Sharma",
+  name: "Sunil Angra",
   title: "Featured Artist",
-  bio: "Ishita blends layered brush textures with gentle Indian earth palettes to create calming statement pieces.",
+  bio: "Sunil Angra is a contemporary artist with over 25 years of experience, known for his abstract and semi-abstract works that blend emotion, texture, and visual harmony.",
   image:
     "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=900&q=80",
 };
