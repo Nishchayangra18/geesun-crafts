@@ -30,7 +30,7 @@ function writeGuestRestockEmail(email: string) {
   localStorage.setItem(RESTOCK_GUEST_EMAIL_KEY, email.trim().toLowerCase());
 }
 
-export function ProductCard({ product }: { product: Product }) {
+export function ProductCard({ product, className = "" }: { product: Product; className?: string }) {
   const { cart, addToCart, updateCartQuantity, addToWishlist, removeFromWishlist, isWishlisted, userEmail } = useStore();
   const liked = isWishlisted(product.id);
   const outOfStock = product.quantity <= 0;
@@ -263,7 +263,7 @@ export function ProductCard({ product }: { product: Product }) {
     <>
       <article
         ref={cardRef}
-        className={`card-surface grain-overlay overflow-hidden transition-all duration-300 ease-out ${
+        className={`card-surface grain-overlay relative flex h-full flex-col overflow-hidden transition-all duration-300 ease-out ${className} ${
           feedback?.tone === "success"
             ? "ring-2 ring-[rgb(107_125_94_/_0.45)] shadow-[0_12px_26px_rgb(107_125_94_/_20%)]"
             : feedback?.tone === "warning"
@@ -286,7 +286,16 @@ export function ProductCard({ product }: { product: Product }) {
             />
           </div>
         </Link>
-        <div className="space-y-3 p-4">
+        <button
+          type="button"
+          onClick={handleWishlist}
+          disabled={isUpdatingWishlist || isUpdatingCart}
+          aria-label={liked ? "Remove from Wishlist" : "Add to Wishlist"}
+          className="absolute right-4 top-4 z-[2] flex h-9 w-9 items-center justify-center rounded-full border border-[#dbcdb5] bg-[#fff8f0]/95 text-sm text-[#6B7D5E] shadow-[0_8px_14px_rgba(74,63,48,0.15)] transition hover:scale-105 hover:bg-[#fff] disabled:opacity-70"
+        >
+          <span aria-hidden="true">{liked ? "\u2665" : "\u2661"}</span>
+        </button>
+        <div className="flex flex-1 flex-col space-y-3 p-4">
           {feedback ? (
             <div
               className={`rounded-lg border px-3 py-2 text-xs ${
@@ -298,16 +307,16 @@ export function ProductCard({ product }: { product: Product }) {
               {feedback.text}
             </div>
           ) : null}
-          <div>
+          <div className="min-h-[5.25rem]">
             <p className="text-xs uppercase tracking-[0.15em] text-[var(--text-muted)]">{product.style}</p>
             <h3 className="mt-1 font-[var(--font-heading)] text-2xl leading-tight">{product.title}</h3>
           </div>
-          <div className="space-y-1 text-sm text-[var(--text-muted)]">
+          <div className="min-h-[5.4rem] space-y-1 text-sm text-[var(--text-muted)]">
             <p>{product.dimensions}</p>
             {product.articleCode ? <p className="text-xs">Code: {product.articleCode}</p> : null}
             {product.setType ? <p className="text-xs">{product.setType}</p> : null}
           </div>
-          <div className="flex items-end justify-between gap-3">
+          <div className="mt-auto flex items-end justify-between gap-3">
             <p className="text-lg font-semibold">{formatINR(product.price)}</p>
             <p className="text-sm text-[var(--text-muted)]">{product.rating.toFixed(1)} ★</p>
           </div>

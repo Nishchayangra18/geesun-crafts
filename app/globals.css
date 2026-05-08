@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f5f1eb;
-  --secondary: #e8dfc9;
-  --accent-gold: #c2a875;
+  --background: #f6f1e8;
+  --secondary: #fbf8f3;
+  --accent-gold: #bda37e;
   --olive: #6b7d5e;
-  --text-primary: #2e2e2e;
-  --text-muted: #71695f;
-  --panel: #f7f2e8;
-  --border-soft: #dbcdb5;
-  --shadow-soft: 0 12px 30px rgb(89 71 46 / 10%);
+  --text-primary: #2a241f;
+  --text-muted: #7b736a;
+  --panel: #fbf8f3;
+  --border-soft: #dccfb8;
+  --shadow-soft: 0 14px 32px rgb(89 71 46 / 10%);
 }
 
 *,
@@ -25,6 +25,7 @@ body {
 }
 
 body {
+  overflow-x: hidden;
   font-family: var(--font-body), sans-serif;
   background: var(--background);
   color: var(--text-primary);
@@ -99,7 +100,7 @@ img {
 }
 
 .section-space {
-  padding-block: clamp(2.5rem, 4vw, 4.5rem);
+  padding-block: clamp(2.2rem, 3.8vw, 4rem);
 }
 
 .soft-divider {
@@ -158,11 +159,12 @@ img {
 }
 
 .image-zoom {
-  transition: transform 0.7s ease;
+  transition: transform 0.7s ease, filter 0.7s ease;
 }
 
 .group:hover .image-zoom {
-  transform: scale(1.035);
+  transform: scale(1.045);
+  filter: saturate(1.03);
 }
 
 .no-scrollbar {
@@ -187,4 +189,38 @@ img {
   opacity: 1;
   transform: translateY(0) scale(1);
   transition: opacity 0.45s ease, transform 0.45s ease;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+.hero-glow {
+  background:
+    radial-gradient(circle at 80% 20%, rgb(107 125 94 / 12%), transparent 34%),
+    radial-gradient(circle at 8% 92%, rgb(194 168 117 / 14%), transparent 36%),
+    var(--panel);
+}
+
+.glass-form {
+  background: rgb(255 255 255 / 14%);
+  border: 1px solid rgb(233 245 223 / 45%);
+  backdrop-filter: blur(6px);
+}
+
+.nav-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 1.5px;
+  background: var(--olive);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.28s ease;
+}
+
+.nav-link:hover::after {
+  transform: scaleX(1);
 }

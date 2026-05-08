@@ -49,6 +49,7 @@ export type Testimonial = {
   name: string;
   city: string;
   message: string;
+  image?: string;
 };
 
 export type ArtistProfile = {

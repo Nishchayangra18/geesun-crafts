@@ -1,161 +1,132 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ProductCard } from "@/components/commerce/product-card";
 import type { Product } from "@/lib/types";
 
 type ProductCarouselProps = {
   products: Product[];
   ariaLabel: string;
+  desktopCards?: number;
+  className?: string;
+  cardClassName?: string;
+  arrowsOutside?: boolean;
 };
 
-function getCardsPerView(width: number) {
-  if (width >= 1024) return 4;
+function getCardsPerView(width: number, desktopCards: number) {
+  if (width >= 1024) return desktopCards;
   if (width >= 640) return 2;
   return 1;
 }
 
-export function ProductCarousel({ products, ariaLabel }: ProductCarouselProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const dragStateRef = useRef({ active: false, startX: 0, startScrollLeft: 0 });
-  const [visibleIndexes, setVisibleIndexes] = useState<Set<number>>(new Set());
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(products.length > 0);
+export function ProductCarousel({
+  products,
+  ariaLabel,
+  desktopCards = 3,
+  className = "",
+  cardClassName = "",
+  arrowsOutside = false,
+}: ProductCarouselProps) {
+  const [cardsPerView, setCardsPerView] = useState(() =>
+    typeof window === "undefined" ? desktopCards : getCardsPerView(window.innerWidth, desktopCards)
+  );
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  const itemIds = useMemo(() => products.map((item) => item.id), [products]);
-
-  const updateArrowState = useCallback(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    const maxLeft = node.scrollWidth - node.clientWidth - 1;
-    setCanScrollLeft(node.scrollLeft > 2);
-    setCanScrollRight(node.scrollLeft < maxLeft);
-  }, []);
-
-  useEffect(() => {
-    updateArrowState();
-    const node = scrollRef.current;
-    if (!node) return;
-
-    const onScroll = () => updateArrowState();
-    node.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-
-    return () => {
-      node.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, [updateArrowState]);
+  const maxStartIndex = Math.max(0, products.length - cardsPerView);
+  const canScrollLeft = activeIndex > 0;
+  const canScrollRight = activeIndex < maxStartIndex;
+  const gapPx = 16;
 
   useEffect(() => {
-    const node = scrollRef.current;
-    if (!node) return;
+    function handleResize() {
+      const nextCardsPerView = getCardsPerView(window.innerWidth, desktopCards);
+      setCardsPerView(nextCardsPerView);
+    }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        setVisibleIndexes((prev) => {
-          const next = new Set(prev);
-          entries.forEach((entry) => {
-            const indexAttr = entry.target.getAttribute("data-index");
-            const index = indexAttr ? Number(indexAttr) : -1;
-            if (index < 0) return;
-            if (entry.isIntersecting) next.add(index);
-          });
-          return next;
-        });
-      },
-      { root: node, threshold: 0.35 }
-    );
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [desktopCards]);
 
-    const cards = Array.from(node.querySelectorAll("[data-index]"));
-    cards.forEach((card) => observer.observe(card));
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [itemIds]);
+  useEffect(() => {
+    setActiveIndex((current) => Math.min(current, maxStartIndex));
+  }, [maxStartIndex]);
 
   function scrollByCards(direction: 1 | -1) {
-    const node = scrollRef.current;
-    if (!node) return;
-
-    const card = node.querySelector<HTMLElement>("[data-card='true']");
-    if (!card) return;
-
-    const styles = window.getComputedStyle(node);
-    const gap = Number.parseFloat(styles.columnGap || styles.gap || "0");
-    const cardsPerView = getCardsPerView(window.innerWidth);
-    const amount = (card.offsetWidth + gap) * cardsPerView;
-
-    node.scrollBy({ left: direction * amount, behavior: "smooth" });
+    setActiveIndex((current) => {
+      const next = current + direction;
+      if (next < 0) return 0;
+      if (next > maxStartIndex) return maxStartIndex;
+      return next;
+    });
   }
 
-  function handleMouseDown(event: MouseEvent<HTMLDivElement>) {
-    const node = scrollRef.current;
-    if (!node || event.button !== 0) return;
+  const cardBasis = useMemo(() => {
+    if (cardsPerView <= 1) return "calc(100% - 0px)";
+    if (cardsPerView === 2) return `calc((100% - ${gapPx}px) / 2)`;
+    return `calc((100% - ${gapPx * 2}px) / 3)`;
+  }, [cardsPerView]);
 
-    dragStateRef.current = {
-      active: true,
-      startX: event.clientX,
-      startScrollLeft: node.scrollLeft,
-    };
+  const trackTransform = useMemo(() => {
+    return `translateX(calc(${activeIndex} * -1 * (${cardBasis} + ${gapPx}px)))`;
+  }, [activeIndex, cardBasis]);
+
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  function onTouchStart(clientX: number) {
+    setTouchStartX(clientX);
   }
 
-  function handleMouseMove(event: MouseEvent<HTMLDivElement>) {
-    const node = scrollRef.current;
-    if (!node || !dragStateRef.current.active) return;
-    event.preventDefault();
-    const deltaX = event.clientX - dragStateRef.current.startX;
-    node.scrollLeft = dragStateRef.current.startScrollLeft - deltaX;
-  }
-
-  function stopDragging() {
-    dragStateRef.current.active = false;
+  function onTouchEnd(clientX: number) {
+    if (touchStartX === null) return;
+    const delta = clientX - touchStartX;
+    if (Math.abs(delta) < 40) return;
+    scrollByCards(delta < 0 ? 1 : -1);
+    setTouchStartX(null);
   }
 
   return (
-    <div className="relative">
+    <div className={`relative w-full max-w-full overflow-hidden ${className}`}>
       <button
         type="button"
         onClick={() => scrollByCards(-1)}
         disabled={!canScrollLeft}
         aria-label={`Scroll ${ariaLabel} left`}
-        className="absolute top-1/2 left-0 z-10 hidden h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-[#dccbb5] bg-[#f6f1ea] text-[var(--text-muted)] shadow-md transition-all duration-300 hover:scale-105 hover:bg-[#e9ddcd] hover:text-[var(--olive)] hover:shadow-[0_10px_22px_rgba(89,71,46,0.2)] disabled:cursor-not-allowed disabled:opacity-40 lg:flex"
+        className={`absolute top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-[#DCCBB5] bg-[#FBF7F0] text-[#6B7D5E] shadow-[0_10px_20px_rgba(78,64,46,0.12)] transition-all duration-300 hover:scale-105 hover:bg-[#EFE3D1] disabled:cursor-not-allowed disabled:opacity-60 lg:flex ${
+          arrowsOutside ? "left-1 -translate-x-1/2" : "left-3"
+        }`}
       >
-        <span aria-hidden>&larr;</span>
+        <span aria-hidden className="text-lg leading-none">←</span>
       </button>
 
       <div
-        ref={scrollRef}
         role="region"
         aria-label={ariaLabel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={stopDragging}
-        onMouseUp={stopDragging}
-        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-        className="no-scrollbar flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth px-1 pr-10 touch-pan-y"
+        className="relative w-full overflow-hidden"
+        onTouchStart={(event) => onTouchStart(event.touches[0]?.clientX ?? 0)}
+        onTouchEnd={(event) => onTouchEnd(event.changedTouches[0]?.clientX ?? 0)}
       >
-        {products.map((product, index) => (
-          <div
-            key={product.id}
-            data-index={index}
-            data-card="true"
-            className={`snap-start shrink-0 min-w-[calc(100%-0.5rem)] sm:min-w-[calc((100%-1rem)/2)] lg:min-w-[calc((100%-3rem)/4)] ${
-              visibleIndexes.has(index) ? "carousel-card-in" : "carousel-card-out"
-            }`}
-          >
-            <ProductCard product={product} />
-          </div>
-        ))}
+        <div
+          className="flex gap-4 transition-transform duration-500 ease-out will-change-transform"
+          style={{ transform: trackTransform }}
+        >
+          {products.map((product) => (
+            <div
+              key={product.id}
+              className="shrink-0"
+              style={{ flexBasis: cardBasis, minWidth: cardBasis, maxWidth: cardBasis }}
+            >
+              <ProductCard product={product} className={cardClassName} />
+            </div>
+          ))}
+        </div>
       </div>
 
       <div
-        className="pointer-events-none absolute inset-y-0 left-0 z-[2] hidden w-12 bg-gradient-to-r from-[var(--background)] to-transparent lg:block"
+        className="pointer-events-none absolute inset-y-0 left-0 z-[2] hidden w-10 bg-gradient-to-r from-[var(--background)] to-transparent lg:block"
         aria-hidden
       />
       <div
-        className="pointer-events-none absolute inset-y-0 right-0 z-[2] hidden w-12 bg-gradient-to-l from-[var(--background)] to-transparent lg:block"
+        className="pointer-events-none absolute inset-y-0 right-0 z-[2] hidden w-10 bg-gradient-to-l from-[var(--background)] to-transparent lg:block"
         aria-hidden
       />
 
@@ -164,9 +135,11 @@ export function ProductCarousel({ products, ariaLabel }: ProductCarouselProps) {
         onClick={() => scrollByCards(1)}
         disabled={!canScrollRight}
         aria-label={`Scroll ${ariaLabel} right`}
-        className="absolute top-1/2 right-0 z-10 hidden h-12 w-12 translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-[#dccbb5] bg-[#f6f1ea] text-[var(--text-muted)] shadow-md transition-all duration-300 hover:scale-105 hover:bg-[#e9ddcd] hover:text-[var(--olive)] hover:shadow-[0_10px_22px_rgba(89,71,46,0.2)] disabled:cursor-not-allowed disabled:opacity-40 lg:flex"
+        className={`absolute top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-[#DCCBB5] bg-[#FBF7F0] text-[#6B7D5E] shadow-[0_10px_20px_rgba(78,64,46,0.12)] transition-all duration-300 hover:scale-105 hover:bg-[#EFE3D1] disabled:cursor-not-allowed disabled:opacity-60 lg:flex ${
+          arrowsOutside ? "right-1 translate-x-1/2" : "right-3"
+        }`}
       >
-        <span aria-hidden>&rarr;</span>
+        <span aria-hidden className="text-lg leading-none">→</span>
       </button>
     </div>
   );

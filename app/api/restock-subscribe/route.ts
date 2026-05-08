@@ -14,12 +14,12 @@ function normalizeEmail(value: unknown) {
     .toLowerCase();
 }
 
-function applyUserSpecificSubscriptionFilter<T>({
+function applyUserSpecificSubscriptionFilter({
   query,
   userId,
   email,
 }: {
-  query: T & { or: (filters: string) => T };
+  query: { or: (filters: string) => unknown };
   userId?: string | null;
   email?: string | null;
 }) {
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ subscribed: false });
     }
 
-    let query = supabase
+    let query: any = supabase
       .from("restock_subscriptions")
       .select("id")
       .eq("product_id", productId);
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
     }
 
     const authUser = await getAuthenticatedUserFromRequest(request);
-    let existingQuery = supabase
+    let existingQuery: any = supabase
       .from("restock_subscriptions")
       .select("id")
       .eq("product_id", productId);

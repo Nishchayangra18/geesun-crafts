@@ -75,21 +75,21 @@ export function SiteHeader() {
   const initials = (userEmail ?? "A").slice(0, 1).toUpperCase();
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--border-soft)]/80 bg-[color:rgba(245,241,235,0.93)] backdrop-blur">
-      <div className="container-shell flex h-20 items-center justify-between gap-6">
+    <header className="sticky top-0 z-50 w-full border-b border-[#E5DED3] bg-[color:rgba(246,241,232,0.9)] backdrop-blur-sm">
+      <div className="mx-auto flex h-[74px] w-full max-w-[1280px] items-center justify-between gap-6 px-6 lg:px-12">
         <Link href="/" className="shrink-0">
-          <p className="font-[var(--font-heading)] text-3xl leading-none">Geesun Crafts</p>
-          <p className="text-xs text-[var(--text-muted)]">Timeless Art for Your Home</p>
+          <p className="font-[var(--font-heading)] text-2xl leading-none sm:text-3xl">Geesun Crafts</p>
+          <p className="text-[10px] text-[var(--text-muted)] sm:text-xs">Timeless Art for Your Home</p>
         </Link>
 
-        <nav className="hidden items-center gap-7 md:flex">
+        <nav className="hidden items-center gap-8 md:flex">
           {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "text-sm tracking-wide transition-colors",
-                pathname === item.href ? "text-[var(--olive)]" : "text-[var(--text-muted)] hover:text-[var(--text-primary)]",
+                "nav-link relative text-sm tracking-wide transition-colors",
+                pathname === item.href ? "text-[var(--olive)] after:scale-x-100" : "text-[var(--text-muted)] hover:text-[var(--text-primary)]",
               )}
             >
               {item.label}
@@ -98,10 +98,10 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex items-center gap-3 text-xs text-[var(--text-muted)] md:gap-5 md:text-sm">
-          <Link href="/wishlist" data-wishlist-icon className="hover:text-[var(--text-primary)]">
+          <Link href="/wishlist" data-wishlist-icon className="hover:text-[var(--text-primary)] transition-colors">
             Wishlist ({wishlistCount})
           </Link>
-          <Link href="/cart" data-cart-icon className="hover:text-[var(--text-primary)]">
+          <Link href="/cart" data-cart-icon className="hover:text-[var(--text-primary)] transition-colors">
             Cart ({cartCount})
           </Link>
 
