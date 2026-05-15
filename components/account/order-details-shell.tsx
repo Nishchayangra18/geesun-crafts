@@ -77,12 +77,13 @@ export function OrderDetailsShell({
         if (!supabase) {
           throw new Error("Authentication is not configured.");
         }
+        const auth = supabase.auth;
 
         async function getAccessTokenWithRetry() {
           for (let attempt = 0; attempt < 3; attempt += 1) {
             const {
               data: { session },
-            } = await supabase.auth.getSession();
+            } = await auth.getSession();
             const token = session?.access_token ?? "";
             if (token) return token;
             await new Promise((resolve) => window.setTimeout(resolve, 250));

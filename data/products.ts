@@ -7,6 +7,7 @@ export type ProductSeed = {
   quantity: number;
   maxQuantity: number;
   setType: string;
+  category?: string;
   style: string;
   medium: string;
   frame: string;

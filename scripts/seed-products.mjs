@@ -196,6 +196,7 @@ async function seedProducts() {
         quantity: seed.quantity,
         max_quantity: seed.maxQuantity,
         set_type: seed.setType,
+        category: seed.category || String(seed.style).trim().toLowerCase(),
         style: seed.style,
         medium: seed.medium,
         frame: seed.frame,

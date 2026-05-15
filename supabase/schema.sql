@@ -46,6 +46,9 @@ create table if not exists products (
   created_at timestamptz default now()
 );
 
+create index if not exists idx_products_category
+  on products(category);
+
 create table if not exists coupons (
   id uuid primary key default uuid_generate_v4(),
   code text unique not null,

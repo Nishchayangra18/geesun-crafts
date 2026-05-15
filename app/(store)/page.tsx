@@ -5,7 +5,7 @@ import { ProductCarousel } from "@/components/home/product-carousel";
 import { BestsellersSection } from "@/components/home/bestsellers-section";
 import { TestimonialsCarousel } from "@/components/home/testimonials-carousel";
 import { categories, testimonials } from "@/lib/content/home-content";
-import { fetchProducts } from "@/lib/data/products";
+import { fetchProducts, getBestsellerProducts } from "@/lib/data/products";
 
 const customFeatures = [
   "Personalized Designs",
@@ -15,8 +15,7 @@ const customFeatures = [
 ];
 
 export default async function HomePage() {
-  const products = await fetchProducts();
-  const bestsellers = products.filter((product) => product.bestseller);
+  const [products, bestsellers] = await Promise.all([fetchProducts(), getBestsellerProducts()]);
   const featuredProducts = products.filter((product) => product.featured);
   const heroImage =
     products[0]?.image ??
@@ -34,7 +33,7 @@ export default async function HomePage() {
           </div>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {categories.map((category) => (
-              <article key={category.title} className="premium-hover-card overflow-hidden rounded-2xl border border-[var(--border-soft)] bg-[#f8f2e8]">
+              <Link key={category.title} href={category.href} className="premium-hover-card block cursor-pointer overflow-hidden rounded-2xl border border-[var(--border-soft)] bg-[#f8f2e8]">
                 <div className="group relative">
                   <Image src={category.image} alt={category.title} width={700} height={500} className="image-zoom aspect-[16/11] w-full object-cover" sizes="(max-width: 1280px) 50vw, 25vw" />
                   <div className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-[#f9f3ea] text-xs font-semibold text-[#6B7D5E] shadow-md transition-transform duration-300 group-hover:scale-110">
@@ -45,7 +44,7 @@ export default async function HomePage() {
                   <h3 className="font-[var(--font-heading)] text-2xl text-[#3b332d]">{category.title}</h3>
                   <p className="mt-1 text-sm text-[var(--text-muted)]">{category.description}</p>
                 </div>
-              </article>
+              </Link>
             ))}
           </div>
         </div>

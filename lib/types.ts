@@ -17,6 +17,7 @@ export type Product = {
   rating: number;
   articleCode: string;
   setType: string;
+  category?: string;
   frame: string;
   style: ArtStyle;
   medium: ArtMedium;

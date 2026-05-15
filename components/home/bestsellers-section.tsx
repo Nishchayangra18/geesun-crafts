@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { ProductCard } from "@/components/commerce/product-card";
 import type { Product } from "@/lib/types";
@@ -24,8 +23,9 @@ export function BestsellersSection({ products }: BestsellersSectionProps) {
   const gapPx = 24;
 
   const maxStartIndex = Math.max(0, products.length - cardsPerView);
-  const canScrollLeft = activeIndex > 0;
-  const canScrollRight = activeIndex < maxStartIndex;
+  const visibleActiveIndex = Math.min(activeIndex, maxStartIndex);
+  const canScrollLeft = visibleActiveIndex > 0;
+  const canScrollRight = visibleActiveIndex < maxStartIndex;
 
   useEffect(() => {
     function handleResize() {
@@ -35,13 +35,9 @@ export function BestsellersSection({ products }: BestsellersSectionProps) {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  useEffect(() => {
-    setActiveIndex((current) => Math.min(current, maxStartIndex));
-  }, [maxStartIndex]);
-
   function scrollByCards(direction: 1 | -1) {
     setActiveIndex((current) => {
-      const next = current + direction;
+      const next = Math.min(current, maxStartIndex) + direction;
       if (next < 0) return 0;
       if (next > maxStartIndex) return maxStartIndex;
       return next;
@@ -55,8 +51,8 @@ export function BestsellersSection({ products }: BestsellersSectionProps) {
   }, [cardsPerView]);
 
   const trackTransform = useMemo(() => {
-    return `translateX(calc(${activeIndex} * -1 * (${cardBasis} + ${gapPx}px)))`;
-  }, [activeIndex, cardBasis]);
+    return `translateX(calc(${visibleActiveIndex} * -1 * (${cardBasis} + ${gapPx}px)))`;
+  }, [visibleActiveIndex, cardBasis]);
 
   return (
     <section id="bestsellers" className="bg-transparent py-16 xl:py-24">
@@ -75,7 +71,7 @@ export function BestsellersSection({ products }: BestsellersSectionProps) {
 
           <div className="flex items-center gap-3">
             <Link
-              href="/shop"
+              href="/bestsellers"
               className="inline-flex h-11 items-center rounded-full bg-[#5A7442] px-8 text-base font-semibold text-white shadow-[0_8px_20px_rgba(66,84,49,0.3)] transition hover:bg-[#4f673a]"
             >
               View All
@@ -111,7 +107,7 @@ export function BestsellersSection({ products }: BestsellersSectionProps) {
                 Most loved pieces from our art community.
               </p>
               <Link
-                href="/shop"
+                href="/bestsellers"
                 className="mt-8 inline-flex w-fit items-center gap-3 whitespace-nowrap rounded-full bg-white px-5 py-2.5 text-sm font-semibold !text-black shadow-[0_4px_10px_rgba(0,0,0,0.12)] transition hover:-translate-y-0.5"
               >
                 View All Products
