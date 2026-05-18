@@ -224,3 +224,465 @@ html {
 .nav-link:hover::after {
   transform: scaleX(1);
 }
+
+.luxury-site-footer-section {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  width: 100%;
+  margin-top: auto;
+  padding: 48px 0 28px;
+  color: #f5f1e8;
+  background:
+    radial-gradient(circle at 50% 47%, rgb(107 125 94 / 20%), transparent 35%),
+    linear-gradient(135deg, #1a2618 0%, #23361f 30%, #101510 100%);
+  box-shadow: 0 -18px 60px rgb(0 0 0 / 12%);
+}
+
+.luxury-site-footer-section::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  z-index: -2;
+  background:
+    radial-gradient(circle at 54% 44%, rgb(192 170 108 / 10%), transparent 23%),
+    radial-gradient(circle at 18% 86%, rgb(92 117 73 / 16%), transparent 25%);
+  pointer-events: none;
+}
+
+.luxury-site-footer-section::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(rgb(246 236 204 / 8%) 0.65px, transparent 0.65px);
+  background-size: 4px 4px;
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+.luxury-footer-card.container-shell {
+  width: min(1460px, calc(100% - 2rem));
+}
+
+.luxury-footer-card {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+  border-radius: 0;
+  padding: 0 40px;
+  color: #f5f1e8;
+  background: transparent;
+  box-shadow: none;
+}
+
+.luxury-footer-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(310px, 1.62fr) minmax(130px, 0.74fr) minmax(180px, 0.95fr) minmax(230px, 1.05fr);
+  gap: 48px;
+  align-items: start;
+}
+
+.luxury-brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.luxury-footer-logo {
+  width: 48px;
+  height: 62px;
+  flex: 0 0 auto;
+  color: #c9a95b;
+  filter: drop-shadow(0 8px 14px rgb(0 0 0 / 18%));
+}
+
+.luxury-brand-lockup h2 {
+  margin: 0;
+  font-family: var(--font-heading), serif;
+  font-size: 54px;
+  font-weight: 500;
+  line-height: 1;
+  color: #f5f1e8;
+  text-shadow: 0 10px 24px rgb(0 0 0 / 20%);
+}
+
+.luxury-brand-description {
+  max-width: 420px;
+  margin: 26px 0 0;
+  font-size: 18px;
+  line-height: 1.8;
+  color: rgb(255 255 255 / 82%);
+}
+
+.luxury-social-list {
+  display: flex;
+  gap: 22px;
+  margin-top: 30px;
+}
+
+.luxury-social-link {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #c9a95b;
+  border-radius: 999px;
+  color: #c9a95b;
+  background: transparent;
+  transition: color 0.22s ease, background-color 0.22s ease, border-color 0.22s ease, transform 0.22s ease;
+}
+
+.luxury-social-link:hover {
+  color: #172016;
+  background: linear-gradient(135deg, #f2cd73, #c99a36);
+  border-color: #e8c46d;
+  transform: translateY(-2px);
+}
+
+.luxury-social-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.luxury-newsletter {
+  margin-top: 42px;
+  max-width: 430px;
+}
+
+.luxury-newsletter h3 {
+  margin: 0;
+  font-family: var(--font-heading), serif;
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1.22;
+  color: #fffaf1;
+}
+
+.luxury-newsletter p {
+  margin: 12px 0 18px;
+  font-size: 17px;
+  line-height: 1.6;
+  color: rgb(255 255 255 / 86%);
+}
+
+.luxury-newsletter-form {
+  display: flex;
+  width: min(100%, 392px);
+  align-items: center;
+  gap: 10px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 70%);
+  background: #fff;
+  padding: 6px;
+  box-shadow: inset 0 2px 8px rgb(0 0 0 / 8%), 0 14px 28px rgb(0 0 0 / 14%);
+}
+
+.luxury-newsletter-form input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 0 16px;
+  font: inherit;
+  font-size: 15px;
+  color: #172016;
+  outline: none;
+}
+
+.luxury-newsletter-form input::placeholder {
+  color: #858b90;
+}
+
+.luxury-newsletter-form button {
+  min-width: 104px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f3cc70 0%, #d9a742 52%, #c28a26 100%);
+  color: #172016;
+  cursor: pointer;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  transition: filter 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.luxury-newsletter-form button:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgb(0 0 0 / 16%);
+}
+
+.luxury-footer-column h3 {
+  margin: 9px 0 28px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #f5f1e8;
+}
+
+.luxury-footer-column nav {
+  display: grid;
+  gap: 23px;
+}
+
+.luxury-footer-column a,
+.luxury-contact-list p {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.35;
+  color: rgb(255 255 255 / 86%);
+}
+
+.luxury-footer-column a {
+  transition: color 0.22s ease, transform 0.22s ease;
+}
+
+.luxury-footer-column a:hover {
+  color: #d8ad4f;
+  transform: translateX(2px);
+}
+
+.luxury-contact-list {
+  display: grid;
+  gap: 26px;
+}
+
+.luxury-contact-list p {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.luxury-contact-icon {
+  width: 25px;
+  height: 25px;
+  flex: 0 0 auto;
+  color: #f5f1e8;
+  filter: drop-shadow(0 6px 10px rgb(0 0 0 / 20%));
+}
+
+.luxury-leaf-watermark {
+  position: absolute;
+  right: 24px;
+  top: 120px;
+  z-index: 0;
+  width: min(22vw, 230px);
+  min-width: 150px;
+  color: #c9a95b;
+  opacity: 0.09;
+  pointer-events: none;
+}
+
+.luxury-footer-bottom {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 30px;
+  border-top: 1px solid rgb(201 169 91 / 48%);
+  padding-top: 25px;
+}
+
+.luxury-footer-bottom p {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+  color: rgb(255 255 255 / 86%);
+}
+
+.luxury-payment-row,
+.luxury-payment-list {
+  display: flex;
+  align-items: center;
+}
+
+.luxury-payment-row {
+  gap: 16px;
+}
+
+.luxury-payment-title {
+  color: rgb(255 255 255 / 92%);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.luxury-payment-list {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.luxury-payment-chip {
+  display: inline-flex;
+  min-width: 84px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 58%);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 92%);
+  padding: 10px 16px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+  backdrop-filter: blur(8px);
+  transition: all 0.3s ease;
+}
+
+.luxury-payment-chip:hover {
+  transform: translateY(-2px);
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 9px 20px rgb(0 0 0 / 16%);
+}
+
+.luxury-payment-logo {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 76px;
+  max-height: 24px;
+  object-fit: contain;
+}
+
+@media (max-width: 1120px) {
+  .luxury-footer-card {
+    padding: 0 20px;
+  }
+
+  .luxury-footer-grid {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 42px 36px;
+  }
+
+  .luxury-brand-column {
+    grid-column: 1 / -1;
+  }
+
+  .luxury-footer-bottom {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .luxury-site-footer-section {
+    padding: 36px 0 24px;
+  }
+
+  .luxury-footer-card.container-shell {
+    width: min(100% - 1rem, 1180px);
+  }
+
+  .luxury-footer-card {
+    padding: 0 14px;
+    text-align: center;
+  }
+
+  .luxury-footer-grid {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+
+  .luxury-brand-column {
+    grid-column: auto;
+  }
+
+  .luxury-brand-lockup,
+  .luxury-social-list,
+  .luxury-contact-list p,
+  .luxury-payment-row,
+  .luxury-payment-list {
+    justify-content: center;
+  }
+
+  .luxury-brand-lockup {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .luxury-brand-lockup h2 {
+    font-size: clamp(40px, 12vw, 48px);
+  }
+
+  .luxury-brand-description,
+  .luxury-newsletter {
+    margin-inline: auto;
+  }
+
+  .luxury-brand-description,
+  .luxury-footer-column a,
+  .luxury-contact-list p {
+    font-size: 16px;
+  }
+
+  .luxury-social-list {
+    gap: 18px;
+  }
+
+  .luxury-newsletter {
+    margin-top: 34px;
+  }
+
+  .luxury-newsletter h3 {
+    font-size: 24px;
+  }
+
+  .luxury-newsletter p {
+    font-size: 15px;
+  }
+
+  .luxury-newsletter-form {
+    width: 100%;
+  }
+
+  .luxury-footer-column h3 {
+    margin-bottom: 18px;
+  }
+
+  .luxury-footer-column nav,
+  .luxury-contact-list {
+    gap: 15px;
+  }
+
+  .luxury-footer-bottom {
+    align-items: center;
+    gap: 18px;
+  }
+
+  .luxury-payment-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .luxury-leaf-watermark {
+    right: -16px;
+    top: 52%;
+    width: 180px;
+  }
+}
+
+@media (max-width: 420px) {
+  .luxury-newsletter-form {
+    padding: 5px;
+  }
+
+  .luxury-newsletter-form input {
+    padding: 0 10px;
+    font-size: 14px;
+  }
+
+  .luxury-newsletter-form button {
+    min-width: 86px;
+    font-size: 14px;
+  }
+
+  .luxury-payment-chip {
+    min-width: 78px;
+    padding: 10px 12px;
+  }
+}
